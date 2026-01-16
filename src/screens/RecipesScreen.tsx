@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -15,6 +17,8 @@ import { RootStackParamList, Recipe } from '@/types';
 import {
   searchRecipesMock,
   findRecipesByIngredientsMock,
+  DIETARY_RESTRICTIONS,
+  CUISINE_TYPES,
 } from '@/services/spoonacularService';
 import RecipeCard from '@/components/RecipeCard';
 
@@ -25,6 +29,9 @@ export default function RecipesScreen() {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState<TabType>('search');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [selectedDiet, setSelectedDiet] = useState<string | null>(null);
+  const [selectedCuisine, setSelectedCuisine] = useState<string | null>(null);
 
   const { items } = useInventoryStore();
   const {
@@ -42,14 +49,22 @@ export default function RecipesScreen() {
 
     setLoading(true);
     try {
-      const results = await searchRecipesMock(searchQuery);
+      const results = await searchRecipesMock(searchQuery, selectedDiet, selectedCuisine);
       setSearchResults(results);
     } catch (error) {
       console.error('Search error:', error);
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, setLoading, setSearchResults]);
+  }, [searchQuery, selectedDiet, selectedCuisine, setLoading, setSearchResults]);
+
+  const handleClearFilters = () => {
+    setSelectedDiet(null);
+    setSelectedCuisine(null);
+  };
+
+  const activeFiltersCount =
+    (selectedDiet ? 1 : 0) + (selectedCuisine ? 1 : 0);
 
   const handleFindByIngredients = useCallback(async () => {
     const ingredientNames = items.map((item) => item.name);
@@ -93,6 +108,14 @@ export default function RecipesScreen() {
           returnKeyType="search"
           onSubmitEditing={handleSearch}
         />
+        <TouchableOpacity
+          style={[styles.filterButton, activeFiltersCount > 0 && styles.filterButtonActive]}
+          onPress={() => setShowFilterModal(true)}
+        >
+          <Text style={[styles.filterButtonText, activeFiltersCount > 0 && styles.filterButtonTextActive]}>
+            {activeFiltersCount > 0 ? `Filters (${activeFiltersCount})` : 'Filters'}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
           <Text style={styles.searchButtonText}>Search</Text>
         </TouchableOpacity>
@@ -187,6 +210,89 @@ export default function RecipesScreen() {
     </View>
   );
 
+  const renderFilterModal = () => (
+    <Modal
+      visible={showFilterModal}
+      animationType="slide"
+      transparent
+      onRequestClose={() => setShowFilterModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Filters</Text>
+            <TouchableOpacity onPress={() => setShowFilterModal(false)}>
+              <Text style={styles.modalCloseText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalScroll}>
+            <Text style={styles.filterSectionTitle}>Dietary Restrictions</Text>
+            <View style={styles.filterOptionsContainer}>
+              {DIETARY_RESTRICTIONS.map((diet) => (
+                <TouchableOpacity
+                  key={diet.value}
+                  style={[
+                    styles.filterOption,
+                    selectedDiet === diet.value && styles.filterOptionActive,
+                  ]}
+                  onPress={() =>
+                    setSelectedDiet(selectedDiet === diet.value ? null : diet.value)
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.filterOptionText,
+                      selectedDiet === diet.value && styles.filterOptionTextActive,
+                    ]}
+                  >
+                    {diet.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.filterSectionTitle}>Cuisine Type</Text>
+            <View style={styles.filterOptionsContainer}>
+              {CUISINE_TYPES.map((cuisine) => (
+                <TouchableOpacity
+                  key={cuisine.value}
+                  style={[
+                    styles.filterOption,
+                    selectedCuisine === cuisine.value && styles.filterOptionActive,
+                  ]}
+                  onPress={() =>
+                    setSelectedCuisine(
+                      selectedCuisine === cuisine.value ? null : cuisine.value
+                    )
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.filterOptionText,
+                      selectedCuisine === cuisine.value && styles.filterOptionTextActive,
+                    ]}
+                  >
+                    {cuisine.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          {activeFiltersCount > 0 && (
+            <TouchableOpacity
+              style={styles.clearFiltersButton}
+              onPress={handleClearFilters}
+            >
+              <Text style={styles.clearFiltersText}>Clear All Filters</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.tabBar}>
@@ -198,6 +304,8 @@ export default function RecipesScreen() {
       {activeTab === 'search' && renderSearchTab()}
       {activeTab === 'match' && renderMatchTab()}
       {activeTab === 'saved' && renderSavedTab()}
+
+      {renderFilterModal()}
     </View>
   );
 }
@@ -248,6 +356,24 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontSize: 16,
   },
+  filterButton: {
+    backgroundColor: '#E5E5EA',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    justifyContent: 'center',
+  },
+  filterButtonActive: {
+    backgroundColor: '#FF9500',
+  },
+  filterButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+  },
   searchButton: {
     backgroundColor: '#007AFF',
     paddingHorizontal: 16,
@@ -287,5 +413,81 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5EA',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#000',
+  },
+  modalCloseText: {
+    fontSize: 17,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  modalScroll: {
+    padding: 20,
+  },
+  filterSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  filterOptionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  filterOptionActive: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  filterOptionText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  filterOptionTextActive: {
+    color: '#fff',
+  },
+  clearFiltersButton: {
+    margin: 20,
+    padding: 14,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  clearFiltersText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

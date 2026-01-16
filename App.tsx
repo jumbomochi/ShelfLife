@@ -10,6 +10,7 @@ import {
   RecipesScreen,
   ShoppingListScreen,
   AddItemScreen,
+  EditItemScreen,
   CameraScreen,
   RecipeDetailScreen,
   LoginScreen,
@@ -130,6 +131,16 @@ function CameraModal({ navigation }: any) {
   );
 }
 
+function EditItemModal({ navigation, route }: any) {
+  return (
+    <EditItemScreen
+      itemId={route.params.itemId}
+      onClose={() => navigation.goBack()}
+      onSuccess={() => navigation.navigate('MainTabs', { screen: 'Inventory' })}
+    />
+  );
+}
+
 function RecipeDetailModal({ navigation, route }: any) {
   const { lists, activeListId, createList, addItems } = useShoppingStore();
 
@@ -201,6 +212,14 @@ function MainNavigator() {
         component={CameraModal}
         options={{
           presentation: 'fullScreenModal',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="EditItem"
+        component={EditItemModal}
+        options={{
+          presentation: 'modal',
           headerShown: false,
         }}
       />

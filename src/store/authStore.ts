@@ -10,6 +10,8 @@ import {
   confirmForgotPasswordMock,
   signOutMock,
   getCurrentUserMock,
+  updateProfileMock,
+  changePasswordMock,
 } from '@/services/authService';
 
 const AUTH_STORAGE_KEY = '@shelflife_auth';
@@ -29,6 +31,8 @@ interface AuthState {
   forgotPassword: (email: string) => Promise<void>;
   confirmForgotPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateProfile: (name: string) => Promise<void>;
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
 
   // Session management
   initialize: () => Promise<void>;
@@ -152,6 +156,49 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: false,
         isLoading: false,
       });
+    }
+  },
+
+  updateProfile: async (name) => {
+    set({ isLoading: true, error: null });
+    try {
+      await updateProfileMock(name);
+
+      // Update local user state with new name
+      const currentUser = get().user;
+      if (currentUser) {
+        const updatedUser = { ...currentUser, username: name };
+        set({ user: updatedUser, isLoading: false });
+
+        // Persist updated user
+        const tokens = get().tokens;
+        await AsyncStorage.setItem(
+          AUTH_STORAGE_KEY,
+          JSON.stringify({ user: updatedUser, tokens })
+        );
+      } else {
+        set({ isLoading: false });
+      }
+    } catch (error: any) {
+      set({
+        error: error.message || 'Failed to update profile',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  changePassword: async (oldPassword, newPassword) => {
+    set({ isLoading: true, error: null });
+    try {
+      await changePasswordMock(oldPassword, newPassword);
+      set({ isLoading: false });
+    } catch (error: any) {
+      set({
+        error: error.message || 'Failed to change password',
+        isLoading: false,
+      });
+      throw error;
     }
   },
 

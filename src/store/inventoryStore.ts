@@ -5,9 +5,14 @@ import {
   loadInventoryLocal,
   addToSyncQueue,
 } from '@/services/syncService';
+import {
+  getInventoryItemsByUserMock,
+  getInventoryItemsByHouseholdMock,
+} from '@/services/dynamoDBService';
 
 interface InventoryState {
   items: InventoryItem[];
+  householdItems: InventoryItem[];
   isLoading: boolean;
   isSyncing: boolean;
   error: string | null;
@@ -17,15 +22,19 @@ interface InventoryState {
   updateItem: (id: string, updates: Partial<InventoryItem>) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
   setItems: (items: InventoryItem[]) => void;
+  setHouseholdItems: (items: InventoryItem[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 
   // Sync
   loadFromLocal: () => Promise<void>;
   syncToCloud: () => Promise<void>;
+  syncHouseholdItems: (userId: string, householdId?: string) => Promise<void>;
 
   // Selectors
+  getAllItems: () => InventoryItem[];
   getItemsByLocation: (location: ItemLocation) => InventoryItem[];
+  getItemsByOwnership: (ownership: ItemOwnership) => InventoryItem[];
   getExpiringItems: (daysThreshold: number) => InventoryItem[];
 }
 
@@ -33,6 +42,7 @@ const generateId = () => Math.random().toString(36).substring(2, 15);
 
 export const useInventoryStore = create<InventoryState>((set, get) => ({
   items: [],
+  householdItems: [],
   isLoading: false,
   isSyncing: false,
   error: null,
@@ -111,6 +121,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   },
 
   setItems: (items) => set({ items }),
+  setHouseholdItems: (householdItems) => set({ householdItems }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
 
@@ -135,15 +146,47 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     }
   },
 
+  syncHouseholdItems: async (userId, householdId) => {
+    if (!householdId) {
+      set({ householdItems: [] });
+      return;
+    }
+
+    set({ isSyncing: true });
+    try {
+      // Fetch household items from mock DB
+      const householdItems = await getInventoryItemsByHouseholdMock(householdId);
+
+      // Filter out items that belong to current user (avoid duplicates)
+      const otherMembersItems = householdItems.filter(item => item.userId !== userId);
+
+      set({ householdItems: otherMembersItems, isSyncing: false });
+    } catch (error) {
+      set({ error: 'Failed to sync household inventory', isSyncing: false });
+    }
+  },
+
+  getAllItems: () => {
+    const state = get();
+    return [...state.items, ...state.householdItems];
+  },
+
   getItemsByLocation: (location) => {
-    return get().items.filter((item) => item.location === location);
+    const allItems = get().getAllItems();
+    return allItems.filter((item) => item.location === location);
+  },
+
+  getItemsByOwnership: (ownership) => {
+    const allItems = get().getAllItems();
+    return allItems.filter((item) => item.ownership === ownership);
   },
 
   getExpiringItems: (daysThreshold) => {
     const now = new Date();
     const threshold = new Date(now.getTime() + daysThreshold * 24 * 60 * 60 * 1000);
+    const allItems = get().getAllItems();
 
-    return get().items.filter((item) => {
+    return allItems.filter((item) => {
       if (!item.expirationDate) return false;
       const expDate = new Date(item.expirationDate);
       return expDate <= threshold && expDate >= now;

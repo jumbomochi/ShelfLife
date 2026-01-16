@@ -107,6 +107,7 @@ export interface ShoppingList {
   id: string;
   userId: string;
   householdId?: string;
+  ownership: ItemOwnership; // 'personal' or 'household'
   name: string;
   items: ShoppingListItem[];
   createdAt: string;
@@ -124,6 +125,7 @@ export type RootTabParamList = {
 export type RootStackParamList = {
   MainTabs: undefined;
   AddItem: { mode: 'camera' | 'manual' };
+  EditItem: { itemId: string };
   Camera: undefined;
   RecipeDetail: { recipeId: number };
   Profile: undefined;

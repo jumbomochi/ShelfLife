@@ -4,6 +4,7 @@ import { InventoryItem } from '@/types';
 interface InventoryItemCardProps {
   item: InventoryItem;
   onPress?: (item: InventoryItem) => void;
+  onEdit?: (item: InventoryItem) => void;
   onDelete?: (item: InventoryItem) => void;
 }
 
@@ -29,18 +30,30 @@ const getExpirationStatus = (expirationDate?: string) => {
 export default function InventoryItemCard({
   item,
   onPress,
+  onEdit,
   onDelete,
 }: InventoryItemCardProps) {
   const expirationStatus = getExpirationStatus(item.expirationDate);
+  const isHousehold = item.ownership === 'household';
 
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[
+        styles.container,
+        isHousehold && styles.householdContainer,
+      ]}
       onPress={() => onPress?.(item)}
       activeOpacity={0.7}
     >
       <View style={styles.leftContent}>
-        <Text style={styles.name}>{item.name}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{item.name}</Text>
+          {isHousehold && (
+            <View style={styles.householdBadge}>
+              <Text style={styles.householdBadgeText}>Shared</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.details}>
           {item.quantity} {item.unit} • {item.location}
         </Text>
@@ -57,14 +70,24 @@ export default function InventoryItemCard({
             <Text style={styles.expirationText}>{expirationStatus.label}</Text>
           </View>
         )}
-        {onDelete && (
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => onDelete(item)}
-          >
-            <Text style={styles.deleteText}>Delete</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.actionButtons}>
+          {onEdit && (
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => onEdit(item)}
+            >
+              <Text style={styles.editText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+          {onDelete && (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => onDelete(item)}
+            >
+              <Text style={styles.deleteText}>Delete</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -86,14 +109,35 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  householdContainer: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#5856D6',
+  },
   leftContent: {
     flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
   name: {
     fontSize: 16,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 4,
+  },
+  householdBadge: {
+    backgroundColor: '#5856D6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  householdBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#fff',
+    textTransform: 'uppercase',
   },
   details: {
     fontSize: 14,
@@ -112,6 +156,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#fff',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editButton: {
+    padding: 4,
+  },
+  editText: {
+    fontSize: 12,
+    color: '#007AFF',
   },
   deleteButton: {
     padding: 4,

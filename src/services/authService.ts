@@ -30,6 +30,7 @@ export interface CognitoUser {
   username: string;
   email: string;
   sub: string;
+  householdId?: string;
 }
 
 /**
@@ -279,4 +280,28 @@ export async function signOutMock(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
   mockUser = null;
   mockTokens = null;
+}
+
+export async function updateProfileMock(name: string): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  // In a real implementation, this would update the user's profile in Cognito
+}
+
+export async function changePasswordMock(
+  oldPassword: string,
+  newPassword: string
+): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  if (oldPassword.length < 6) {
+    throw new Error('Current password is incorrect');
+  }
+
+  if (newPassword.length < 8) {
+    throw new Error('New password must be at least 8 characters');
+  }
+
+  if (oldPassword === newPassword) {
+    throw new Error('New password must be different from current password');
+  }
 }

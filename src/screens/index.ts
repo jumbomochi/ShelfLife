@@ -3,6 +3,7 @@ export { default as InventoryScreen } from './InventoryScreen';
 export { default as RecipesScreen } from './RecipesScreen';
 export { default as ShoppingListScreen } from './ShoppingListScreen';
 export { default as AddItemScreen } from './AddItemScreen';
+export { default as EditItemScreen } from './EditItemScreen';
 export { default as CameraScreen } from './CameraScreen';
 export { default as RecipeDetailScreen } from './RecipeDetailScreen';
 export { default as LoginScreen } from './LoginScreen';

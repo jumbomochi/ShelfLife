@@ -192,6 +192,15 @@ export async function getShoppingListsByUser(userId: string): Promise<ShoppingLi
   );
 }
 
+export async function getShoppingListsByHousehold(householdId: string): Promise<ShoppingList[]> {
+  return queryItems<ShoppingList>(
+    TABLES.SHOPPING_LISTS,
+    'householdId = :householdId',
+    { ':householdId': householdId },
+    'householdId-index'
+  );
+}
+
 export async function updateShoppingList(
   listId: string,
   userId: string,
@@ -333,6 +342,13 @@ export async function getInventoryItemsByUserMock(userId: string): Promise<Inven
   return Array.from(mockStorage.inventory.values()).filter((item) => item.userId === userId);
 }
 
+export async function getInventoryItemsByHouseholdMock(householdId: string): Promise<InventoryItem[]> {
+  await simulateDelay();
+  return Array.from(mockStorage.inventory.values()).filter(
+    (item) => item.householdId === householdId && item.ownership === 'household'
+  );
+}
+
 export async function updateInventoryItemMock(
   itemId: string,
   updates: Partial<InventoryItem>
@@ -358,6 +374,13 @@ export async function createShoppingListMock(list: ShoppingList): Promise<void> 
 export async function getShoppingListsByUserMock(userId: string): Promise<ShoppingList[]> {
   await simulateDelay();
   return Array.from(mockStorage.shoppingLists.values()).filter((list) => list.userId === userId);
+}
+
+export async function getShoppingListsByHouseholdMock(householdId: string): Promise<ShoppingList[]> {
+  await simulateDelay();
+  return Array.from(mockStorage.shoppingLists.values()).filter(
+    (list) => list.householdId === householdId && list.ownership === 'household'
+  );
 }
 
 export async function updateShoppingListMock(

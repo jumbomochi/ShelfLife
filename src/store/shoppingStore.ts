@@ -1,19 +1,24 @@
 import { create } from 'zustand';
-import { ShoppingList, ShoppingListItem } from '@/types';
+import { ShoppingList, ShoppingListItem, ItemOwnership } from '@/types';
 import {
   saveShoppingListsLocal,
   loadShoppingListsLocal,
   addToSyncQueue,
 } from '@/services/syncService';
+import {
+  getShoppingListsByUserMock,
+  getShoppingListsByHouseholdMock,
+} from '@/services/dynamoDBService';
 
 interface ShoppingState {
   lists: ShoppingList[];
+  householdLists: ShoppingList[];
   activeListId: string | null;
   isLoading: boolean;
   isSyncing: boolean;
 
   // Actions
-  createList: (name: string) => string;
+  createList: (name: string, ownership?: ItemOwnership, householdId?: string) => string;
   deleteList: (listId: string) => Promise<void>;
   setActiveList: (listId: string | null) => void;
 
@@ -28,8 +33,11 @@ interface ShoppingState {
   // Sync
   loadFromLocal: () => Promise<void>;
   setLists: (lists: ShoppingList[]) => void;
+  setHouseholdLists: (lists: ShoppingList[]) => void;
+  syncHouseholdLists: (userId: string, householdId?: string) => Promise<void>;
 
   // Selectors
+  getAllLists: () => ShoppingList[];
   getActiveList: () => ShoppingList | undefined;
   getList: (listId: string) => ShoppingList | undefined;
   getCheckedCount: (listId: string) => number;
@@ -50,15 +58,18 @@ async function saveAndSync(lists: ShoppingList[], updatedList: ShoppingList, typ
 
 export const useShoppingStore = create<ShoppingState>((set, get) => ({
   lists: [],
+  householdLists: [],
   activeListId: null,
   isLoading: false,
   isSyncing: false,
 
-  createList: (name) => {
+  createList: (name, ownership = 'personal', householdId) => {
     const now = new Date().toISOString();
     const newList: ShoppingList = {
       id: generateId(),
       userId: 'current-user',
+      householdId,
+      ownership,
       name,
       items: [],
       createdAt: now,
@@ -255,23 +266,48 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
   },
 
   setLists: (lists) => set({ lists }),
+  setHouseholdLists: (householdLists) => set({ householdLists }),
+
+  syncHouseholdLists: async (userId, householdId) => {
+    if (!householdId) {
+      set({ householdLists: [] });
+      return;
+    }
+
+    set({ isSyncing: true });
+    try {
+      const householdLists = await getShoppingListsByHouseholdMock(householdId);
+      // Filter out lists that belong to current user (avoid duplicates)
+      const otherMembersLists = householdLists.filter(list => list.userId !== userId);
+      set({ householdLists: otherMembersLists, isSyncing: false });
+    } catch (error) {
+      set({ isSyncing: false });
+    }
+  },
+
+  getAllLists: () => {
+    const state = get();
+    return [...state.lists, ...state.householdLists];
+  },
 
   getActiveList: () => {
     const state = get();
-    return state.lists.find((l) => l.id === state.activeListId);
+    const allLists = state.getAllLists();
+    return allLists.find((l) => l.id === state.activeListId);
   },
 
   getList: (listId) => {
-    return get().lists.find((l) => l.id === listId);
+    const allLists = get().getAllLists();
+    return allLists.find((l) => l.id === listId);
   },
 
   getCheckedCount: (listId) => {
-    const list = get().lists.find((l) => l.id === listId);
+    const list = get().getList(listId);
     return list?.items.filter((i) => i.checked).length || 0;
   },
 
   getUncheckedCount: (listId) => {
-    const list = get().lists.find((l) => l.id === listId);
+    const list = get().getList(listId);
     return list?.items.filter((i) => !i.checked).length || 0;
   },
 }));

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,8 +10,9 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
-import { useShoppingStore, useInventoryStore } from '@/store';
+import { useShoppingStore, useInventoryStore, useAuthStore } from '@/store';
 import { ShoppingList } from '@/types';
 import ShoppingListItemCard from '@/components/ShoppingListItemCard';
 
@@ -19,12 +20,14 @@ export default function ShoppingListScreen() {
   const [showNewListModal, setShowNewListModal] = useState(false);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [newListName, setNewListName] = useState('');
+  const [newListIsHousehold, setNewListIsHousehold] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [newItemQuantity, setNewItemQuantity] = useState('1');
   const [newItemUnit, setNewItemUnit] = useState('pcs');
 
+  const { user } = useAuthStore();
   const {
-    lists,
+    getAllLists,
     activeListId,
     createList,
     deleteList,
@@ -34,7 +37,17 @@ export default function ShoppingListScreen() {
     toggleItemChecked,
     clearCheckedItems,
     getCheckedCount,
+    syncHouseholdLists,
   } = useShoppingStore();
+
+  // Sync household lists on mount
+  useEffect(() => {
+    if (user?.sub && user?.householdId) {
+      syncHouseholdLists(user.sub, user.householdId);
+    }
+  }, [user?.sub, user?.householdId, syncHouseholdLists]);
+
+  const lists = getAllLists();
 
   const { items: inventoryItems, getExpiringItems } = useInventoryStore();
 
@@ -46,8 +59,18 @@ export default function ShoppingListScreen() {
       Alert.alert('Error', 'Please enter a list name');
       return;
     }
-    createList(newListName.trim());
+
+    const ownership = newListIsHousehold ? 'household' : 'personal';
+    const householdId = newListIsHousehold ? user?.householdId : undefined;
+
+    if (newListIsHousehold && !householdId) {
+      Alert.alert('Error', 'You must be in a household to create shared lists');
+      return;
+    }
+
+    createList(newListName.trim(), ownership, householdId);
     setNewListName('');
+    setNewListIsHousehold(false);
     setShowNewListModal(false);
   };
 
@@ -128,18 +151,24 @@ export default function ShoppingListScreen() {
             style={[
               styles.listTab,
               activeListId === item.id && styles.listTabActive,
+              item.ownership === 'household' && styles.listTabHousehold,
             ]}
             onPress={() => setActiveList(item.id)}
             onLongPress={() => handleDeleteList(item.id)}
           >
-            <Text
-              style={[
-                styles.listTabText,
-                activeListId === item.id && styles.listTabTextActive,
-              ]}
-            >
-              {item.name}
-            </Text>
+            <View style={styles.listTabContent}>
+              <Text
+                style={[
+                  styles.listTabText,
+                  activeListId === item.id && styles.listTabTextActive,
+                ]}
+              >
+                {item.name}
+              </Text>
+              {item.ownership === 'household' && (
+                <Text style={styles.listTabBadge}>Shared</Text>
+              )}
+            </View>
             <Text style={styles.listTabCount}>{item.items.length}</Text>
           </TouchableOpacity>
         )}
@@ -253,6 +282,17 @@ export default function ShoppingListScreen() {
               placeholderTextColor="#999"
               autoFocus
             />
+            {user?.householdId && (
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Share with Household</Text>
+                <Switch
+                  value={newListIsHousehold}
+                  onValueChange={setNewListIsHousehold}
+                  trackColor={{ false: '#E5E5EA', true: '#34C759' }}
+                  thumbColor={newListIsHousehold ? '#fff' : '#f4f3f4'}
+                />
+              </View>
+            )}
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={styles.modalCancelButton}
@@ -354,8 +394,16 @@ const styles = StyleSheet.create({
     marginRight: 8,
     gap: 6,
   },
+  listTabHousehold: {
+    borderWidth: 2,
+    borderColor: '#5856D6',
+  },
   listTabActive: {
     backgroundColor: '#007AFF',
+  },
+  listTabContent: {
+    flexDirection: 'column',
+    gap: 2,
   },
   listTabText: {
     fontSize: 14,
@@ -364,6 +412,12 @@ const styles = StyleSheet.create({
   },
   listTabTextActive: {
     color: '#fff',
+  },
+  listTabBadge: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#5856D6',
+    textTransform: 'uppercase',
   },
   listTabCount: {
     fontSize: 12,
@@ -484,6 +538,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontSize: 16,
     marginBottom: 12,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  switchLabel: {
+    fontSize: 16,
+    color: '#000',
+    fontWeight: '500',
   },
   quantityRow: {
     flexDirection: 'row',

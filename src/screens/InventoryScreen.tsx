@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,20 +9,38 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useInventoryStore } from '@/store';
-import { ItemLocation, InventoryItem, RootStackParamList } from '@/types';
+import { useInventoryStore, useAuthStore } from '@/store';
+import { ItemLocation, InventoryItem, RootStackParamList, ItemOwnership } from '@/types';
 import InventoryItemCard from '@/components/InventoryItemCard';
 
-type FilterOption = 'all' | ItemLocation;
+type FilterOption = 'all' | ItemLocation | ItemOwnership;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function InventoryScreen() {
   const navigation = useNavigation<NavigationProp>();
   const [filter, setFilter] = useState<FilterOption>('all');
-  const { items, deleteItem } = useInventoryStore();
+  const { user } = useAuthStore();
+  const { getAllItems, deleteItem, syncHouseholdItems } = useInventoryStore();
+
+  // Sync household items on mount and when user changes
+  useEffect(() => {
+    if (user?.sub && user?.householdId) {
+      syncHouseholdItems(user.sub, user.householdId);
+    }
+  }, [user?.sub, user?.householdId, syncHouseholdItems]);
+
+  const allItems = getAllItems();
 
   const filteredItems =
-    filter === 'all' ? items : items.filter((item) => item.location === filter);
+    filter === 'all'
+      ? allItems
+      : filter === 'personal' || filter === 'household'
+      ? allItems.filter((item) => item.ownership === filter)
+      : allItems.filter((item) => item.location === filter);
+
+  const handleEdit = (item: InventoryItem) => {
+    navigation.navigate('EditItem', { itemId: item.id });
+  };
 
   const handleDelete = (item: InventoryItem) => {
     Alert.alert(
@@ -68,6 +86,8 @@ export default function InventoryScreen() {
     <View style={styles.container}>
       <View style={styles.filterContainer}>
         {renderFilterButton('all', 'All')}
+        {renderFilterButton('personal', 'Personal')}
+        {renderFilterButton('household', 'Household')}
         {renderFilterButton('fridge', 'Fridge')}
         {renderFilterButton('pantry', 'Pantry')}
       </View>
@@ -76,7 +96,7 @@ export default function InventoryScreen() {
         data={filteredItems}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <InventoryItemCard item={item} onDelete={handleDelete} />
+          <InventoryItemCard item={item} onEdit={handleEdit} onDelete={handleDelete} />
         )}
         ListEmptyComponent={renderEmptyState}
         contentContainerStyle={filteredItems.length === 0 && styles.emptyContainer}

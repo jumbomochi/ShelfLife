@@ -3,6 +3,50 @@ import { Recipe, RecipeDetail, RecipeIngredient } from '@/types';
 const SPOONACULAR_API_KEY = process.env.EXPO_PUBLIC_SPOONACULAR_API_KEY || '';
 const BASE_URL = 'https://api.spoonacular.com';
 
+// Dietary Restrictions (from Spoonacular API)
+export const DIETARY_RESTRICTIONS = [
+  { value: 'glutenFree', label: 'Gluten Free' },
+  { value: 'ketogenic', label: 'Ketogenic' },
+  { value: 'vegetarian', label: 'Vegetarian' },
+  { value: 'vegan', label: 'Vegan' },
+  { value: 'pescetarian', label: 'Pescetarian' },
+  { value: 'paleo', label: 'Paleo' },
+  { value: 'primal', label: 'Primal' },
+  { value: 'lowFodmap', label: 'Low FODMAP' },
+  { value: 'whole30', label: 'Whole30' },
+];
+
+// Cuisine Types (from Spoonacular API)
+export const CUISINE_TYPES = [
+  { value: 'african', label: 'African' },
+  { value: 'asian', label: 'Asian' },
+  { value: 'american', label: 'American' },
+  { value: 'british', label: 'British' },
+  { value: 'cajun', label: 'Cajun' },
+  { value: 'caribbean', label: 'Caribbean' },
+  { value: 'chinese', label: 'Chinese' },
+  { value: 'eastern european', label: 'Eastern European' },
+  { value: 'european', label: 'European' },
+  { value: 'french', label: 'French' },
+  { value: 'german', label: 'German' },
+  { value: 'greek', label: 'Greek' },
+  { value: 'indian', label: 'Indian' },
+  { value: 'irish', label: 'Irish' },
+  { value: 'italian', label: 'Italian' },
+  { value: 'japanese', label: 'Japanese' },
+  { value: 'jewish', label: 'Jewish' },
+  { value: 'korean', label: 'Korean' },
+  { value: 'latin american', label: 'Latin American' },
+  { value: 'mediterranean', label: 'Mediterranean' },
+  { value: 'mexican', label: 'Mexican' },
+  { value: 'middle eastern', label: 'Middle Eastern' },
+  { value: 'nordic', label: 'Nordic' },
+  { value: 'southern', label: 'Southern' },
+  { value: 'spanish', label: 'Spanish' },
+  { value: 'thai', label: 'Thai' },
+  { value: 'vietnamese', label: 'Vietnamese' },
+];
+
 interface SearchRecipesParams {
   query?: string;
   ingredients?: string[];
@@ -212,14 +256,35 @@ export const MOCK_RECIPE_DETAIL: RecipeDetail = {
 /**
  * Mock function for searching recipes (development)
  */
-export async function searchRecipesMock(query: string): Promise<Recipe[]> {
+export async function searchRecipesMock(
+  query: string,
+  diet?: string | null,
+  cuisine?: string | null
+): Promise<Recipe[]> {
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  if (!query) return MOCK_RECIPES;
+  let results = MOCK_RECIPES;
 
-  return MOCK_RECIPES.filter((r) =>
-    r.title.toLowerCase().includes(query.toLowerCase())
-  );
+  // Filter by query
+  if (query) {
+    results = results.filter((r) =>
+      r.title.toLowerCase().includes(query.toLowerCase())
+    );
+  }
+
+  // Mock diet filtering - in real implementation this would come from API
+  if (diet) {
+    // For mock purposes, just return a subset based on diet
+    results = results.slice(0, Math.max(2, Math.floor(results.length / 2)));
+  }
+
+  // Mock cuisine filtering
+  if (cuisine) {
+    // For mock purposes, just return a subset based on cuisine
+    results = results.slice(0, Math.max(2, Math.floor(results.length / 2)));
+  }
+
+  return results;
 }
 
 /**
