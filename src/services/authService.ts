@@ -8,6 +8,8 @@ import {
   GetUserCommand,
   GlobalSignOutCommand,
   ResendConfirmationCodeCommand,
+  UpdateUserAttributesCommand,
+  ChangePasswordCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 
 // AWS Cognito Configuration
@@ -193,6 +195,48 @@ export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
 export async function signOut(accessToken: string): Promise<void> {
   const command = new GlobalSignOutCommand({
     AccessToken: accessToken,
+  });
+
+  await cognitoClient.send(command);
+}
+
+/**
+ * Update user attributes (e.g., name)
+ */
+export async function updateUserAttributes(
+  accessToken: string,
+  attributes: { name?: string }
+): Promise<void> {
+  const userAttributes = [];
+
+  if (attributes.name) {
+    userAttributes.push({ Name: 'name', Value: attributes.name });
+  }
+
+  if (userAttributes.length === 0) {
+    return;
+  }
+
+  const command = new UpdateUserAttributesCommand({
+    AccessToken: accessToken,
+    UserAttributes: userAttributes,
+  });
+
+  await cognitoClient.send(command);
+}
+
+/**
+ * Change password
+ */
+export async function changePassword(
+  accessToken: string,
+  oldPassword: string,
+  newPassword: string
+): Promise<void> {
+  const command = new ChangePasswordCommand({
+    AccessToken: accessToken,
+    PreviousPassword: oldPassword,
+    ProposedPassword: newPassword,
   });
 
   await cognitoClient.send(command);

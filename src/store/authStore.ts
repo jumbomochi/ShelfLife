@@ -3,15 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AuthTokens,
   CognitoUser,
-  signInMock,
-  signUpMock,
-  confirmSignUpMock,
-  forgotPasswordMock,
-  confirmForgotPasswordMock,
-  signOutMock,
-  getCurrentUserMock,
-  updateProfileMock,
-  changePasswordMock,
+  signIn as cognitoSignIn,
+  signUp as cognitoSignUp,
+  confirmSignUp as cognitoConfirmSignUp,
+  forgotPassword as cognitoForgotPassword,
+  confirmForgotPassword as cognitoConfirmForgotPassword,
+  signOut as cognitoSignOut,
+  getCurrentUser,
+  refreshTokens,
+  updateUserAttributes,
+  changePassword as cognitoChangePassword,
 } from '@/services/authService';
 
 const AUTH_STORAGE_KEY = '@shelflife_auth';
@@ -50,13 +51,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signIn: async (email, password) => {
     set({ isLoading: true, error: null });
     try {
-      const tokens = await signInMock(email, password);
-
-      const user: CognitoUser = {
-        username: email,
-        email: email,
-        sub: 'user-' + Date.now(),
-      };
+      const tokens = await cognitoSignIn(email, password);
+      const user = await getCurrentUser(tokens.accessToken);
 
       // Persist auth state
       await AsyncStorage.setItem(
@@ -82,7 +78,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signUp: async (email, password, name) => {
     set({ isLoading: true, error: null });
     try {
-      await signUpMock(email, password, name);
+      await cognitoSignUp(email, password, name);
       set({ isLoading: false });
     } catch (error: any) {
       set({
@@ -96,7 +92,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   confirmSignUp: async (email, code) => {
     set({ isLoading: true, error: null });
     try {
-      await confirmSignUpMock(email, code);
+      await cognitoConfirmSignUp(email, code);
       set({ isLoading: false });
     } catch (error: any) {
       set({
@@ -110,7 +106,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   forgotPassword: async (email) => {
     set({ isLoading: true, error: null });
     try {
-      await forgotPasswordMock(email);
+      await cognitoForgotPassword(email);
       set({ isLoading: false });
     } catch (error: any) {
       set({
@@ -124,7 +120,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   confirmForgotPassword: async (email, code, newPassword) => {
     set({ isLoading: true, error: null });
     try {
-      await confirmForgotPasswordMock(email, code, newPassword);
+      await cognitoConfirmForgotPassword(email, code, newPassword);
       set({ isLoading: false });
     } catch (error: any) {
       set({
@@ -138,7 +134,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     set({ isLoading: true });
     try {
-      await signOutMock();
+      const tokens = get().tokens;
+      if (tokens?.accessToken) {
+        await cognitoSignOut(tokens.accessToken);
+      }
       await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
 
       set({
@@ -162,7 +161,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updateProfile: async (name) => {
     set({ isLoading: true, error: null });
     try {
-      await updateProfileMock(name);
+      const tokens = get().tokens;
+      if (!tokens?.accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      await updateUserAttributes(tokens.accessToken, { name });
 
       // Update local user state with new name
       const currentUser = get().user;
@@ -171,7 +175,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ user: updatedUser, isLoading: false });
 
         // Persist updated user
-        const tokens = get().tokens;
         await AsyncStorage.setItem(
           AUTH_STORAGE_KEY,
           JSON.stringify({ user: updatedUser, tokens })
@@ -191,7 +194,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   changePassword: async (oldPassword, newPassword) => {
     set({ isLoading: true, error: null });
     try {
-      await changePasswordMock(oldPassword, newPassword);
+      const tokens = get().tokens;
+      if (!tokens?.accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      await cognitoChangePassword(tokens.accessToken, oldPassword, newPassword);
       set({ isLoading: false });
     } catch (error: any) {
       set({
@@ -208,12 +216,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (stored) {
         const { user, tokens } = JSON.parse(stored);
-        set({
-          user,
-          tokens,
-          isAuthenticated: true,
-          isInitialized: true,
-        });
+
+        // Try to refresh tokens on app start
+        if (tokens?.refreshToken) {
+          try {
+            const newTokens = await refreshTokens(tokens.refreshToken);
+            const updatedUser = await getCurrentUser(newTokens.accessToken);
+
+            await AsyncStorage.setItem(
+              AUTH_STORAGE_KEY,
+              JSON.stringify({ user: updatedUser, tokens: newTokens })
+            );
+
+            set({
+              user: updatedUser,
+              tokens: newTokens,
+              isAuthenticated: true,
+              isInitialized: true,
+            });
+          } catch (refreshError) {
+            // Refresh failed, use stored tokens (may be expired)
+            set({
+              user,
+              tokens,
+              isAuthenticated: true,
+              isInitialized: true,
+            });
+          }
+        } else {
+          set({
+            user,
+            tokens,
+            isAuthenticated: true,
+            isInitialized: true,
+          });
+        }
       } else {
         set({ isInitialized: true });
       }
