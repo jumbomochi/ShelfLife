@@ -13,7 +13,14 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shelflife.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ShelfLife needs access to your camera to scan and identify food items for your inventory.",
+        "NSPhotoLibraryUsageDescription": "ShelfLife needs access to your photo library to select images of food items.",
+        "NSUserNotificationsUsageDescription": "ShelfLife sends notifications to remind you about expiring items."
+      }
     },
     "android": {
       "adaptiveIcon": {
