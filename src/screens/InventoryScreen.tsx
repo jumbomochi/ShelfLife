@@ -10,7 +10,8 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInventoryStore, useAuthStore } from '@/store';
-import { ItemLocation, InventoryItem, RootStackParamList, ItemOwnership } from '@/types';
+import { ItemLocation, InventoryItem, RootStackParamList, ItemOwnership, HouseholdRole } from '@/types';
+import { canEditItem, canDeleteItem } from '@/services/permissionService';
 import InventoryItemCard from '@/components/InventoryItemCard';
 
 type FilterOption = 'all' | ItemLocation | ItemOwnership;
@@ -21,6 +22,9 @@ export default function InventoryScreen() {
   const [filter, setFilter] = useState<FilterOption>('all');
   const { user } = useAuthStore();
   const { getAllItems, deleteItem, syncHouseholdItems } = useInventoryStore();
+  // In production, this comes from household membership data
+  const userRole: HouseholdRole = 'owner'; // TODO: Get from household membership
+  const currentUserId = user?.sub || 'current-user';
 
   // Sync household items on mount and when user changes
   useEffect(() => {
@@ -39,10 +43,18 @@ export default function InventoryScreen() {
       : allItems.filter((item) => item.location === filter);
 
   const handleEdit = (item: InventoryItem) => {
+    if (item.ownership === 'household' && !canEditItem(userRole, item.userId, currentUserId)) {
+      Alert.alert('Permission Denied', 'You can only edit your own items in this household');
+      return;
+    }
     navigation.navigate('EditItem', { itemId: item.id });
   };
 
   const handleDelete = (item: InventoryItem) => {
+    if (item.ownership === 'household' && !canDeleteItem(userRole, item.userId, currentUserId)) {
+      Alert.alert('Permission Denied', 'You can only delete your own items in this household');
+      return;
+    }
     Alert.alert(
       'Delete Item',
       `Are you sure you want to delete "${item.name}"?`,
