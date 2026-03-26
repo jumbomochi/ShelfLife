@@ -13,8 +13,16 @@ import {
   Switch,
 } from 'react-native';
 import { useShoppingStore, useInventoryStore, useAuthStore } from '@/store';
-import { ShoppingList } from '@/types';
+import { useRecipesStore } from '@/store';
+import { ShoppingList, ShoppingSuggestion } from '@/types';
 import ShoppingListItemCard from '@/components/ShoppingListItemCard';
+import SuggestionCard from '@/components/SuggestionCard';
+import {
+  generateSuggestions,
+  getPurchaseHistory,
+  getDismissedSuggestionIds,
+  dismissSuggestion as dismissSuggestionService,
+} from '@/services/suggestionService';
 
 export default function ShoppingListScreen() {
   const [showNewListModal, setShowNewListModal] = useState(false);
@@ -49,7 +57,23 @@ export default function ShoppingListScreen() {
 
   const lists = getAllLists();
 
-  const { items: inventoryItems, getExpiringItems } = useInventoryStore();
+  const { items: inventoryItems } = useInventoryStore();
+
+  const { savedRecipes } = useRecipesStore();
+  const [suggestions, setSuggestions] = useState<ShoppingSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+
+  // Load suggestions
+  useEffect(() => {
+    async function loadSuggestions() {
+      const history = await getPurchaseHistory();
+      const dismissed = await getDismissedSuggestionIds();
+      const allItems = [...inventoryItems, ...(useInventoryStore.getState().householdItems)];
+      const result = generateSuggestions(allItems, history, savedRecipes, dismissed);
+      setSuggestions(result);
+    }
+    loadSuggestions();
+  }, [inventoryItems, savedRecipes]);
 
   const activeList = lists.find((l) => l.id === activeListId);
   const checkedCount = activeListId ? getCheckedCount(activeListId) : 0;
@@ -99,44 +123,22 @@ export default function ShoppingListScreen() {
     ]);
   };
 
-  const handleSuggestItems = () => {
-    if (!activeListId) return;
-
-    // Get expiring items (within 3 days)
-    const expiringItems = getExpiringItems(3);
-
-    // Get low stock items (quantity <= 1)
-    const lowStockItems = inventoryItems.filter((item) => item.quantity <= 1);
-
-    const suggestions = [...expiringItems, ...lowStockItems];
-    const uniqueSuggestions = suggestions.filter(
-      (item, index, self) => index === self.findIndex((i) => i.name === item.name)
-    );
-
-    if (uniqueSuggestions.length === 0) {
-      Alert.alert('No Suggestions', 'No items are running low or expiring soon.');
+  const handleAddSuggestion = (suggestion: ShoppingSuggestion) => {
+    if (!activeListId) {
+      Alert.alert('No List', 'Please select or create a shopping list first');
       return;
     }
+    addItem(activeListId, {
+      name: suggestion.name,
+      quantity: suggestion.quantity || 1,
+      unit: suggestion.unit || 'pcs',
+    });
+    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+  };
 
-    Alert.alert(
-      'Add Suggested Items',
-      `Found ${uniqueSuggestions.length} items that are low or expiring. Add them to the list?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Add All',
-          onPress: () => {
-            uniqueSuggestions.forEach((item) => {
-              addItem(activeListId, {
-                name: item.name,
-                quantity: 1,
-                unit: item.unit,
-              });
-            });
-          },
-        },
-      ]
-    );
+  const handleDismissSuggestion = async (suggestion: ShoppingSuggestion) => {
+    await dismissSuggestionService(suggestion.id);
+    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
   };
 
   const renderListSelector = () => (
@@ -215,13 +217,41 @@ export default function ShoppingListScreen() {
           >
             <Text style={styles.actionButtonText}>+ Add Item</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.suggestButton]}
-            onPress={handleSuggestItems}
-          >
-            <Text style={styles.actionButtonText}>Suggest</Text>
-          </TouchableOpacity>
         </View>
+
+        {/* Suggestions Section */}
+        {suggestions.length > 0 && showSuggestions && (
+          <View style={styles.suggestionsSection}>
+            <TouchableOpacity
+              style={styles.suggestionsHeader}
+              onPress={() => setShowSuggestions(false)}
+            >
+              <Text style={styles.suggestionsTitle}>
+                Suggestions ({suggestions.length})
+              </Text>
+              <Text style={styles.suggestionsToggle}>Hide</Text>
+            </TouchableOpacity>
+            {suggestions.map((suggestion) => (
+              <SuggestionCard
+                key={suggestion.id}
+                suggestion={suggestion}
+                onAdd={handleAddSuggestion}
+                onDismiss={handleDismissSuggestion}
+              />
+            ))}
+          </View>
+        )}
+
+        {suggestions.length > 0 && !showSuggestions && (
+          <TouchableOpacity
+            style={styles.showSuggestionsButton}
+            onPress={() => setShowSuggestions(true)}
+          >
+            <Text style={styles.showSuggestionsText}>
+              Show {suggestions.length} suggestion{suggestions.length !== 1 ? 's' : ''}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <FlatList
           data={[...uncheckedItems, ...checkedItems]}
@@ -456,9 +486,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-  suggestButton: {
-    backgroundColor: '#FF9500',
-  },
   actionButtonText: {
     color: '#fff',
     fontWeight: '600',
@@ -589,5 +616,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     fontWeight: '600',
+  },
+  suggestionsSection: {
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  suggestionsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  suggestionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6D6D72',
+    textTransform: 'uppercase',
+  },
+  suggestionsToggle: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  showSuggestionsButton: {
+    padding: 12,
+    marginHorizontal: 12,
+    alignItems: 'center',
+    backgroundColor: '#F2F2F7',
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  showSuggestionsText: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
   },
 });
