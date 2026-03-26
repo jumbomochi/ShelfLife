@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { InventoryItem, ItemLocation, ItemOwnership } from '@/types';
+import { InventoryItem, ItemLocation, ItemOwnership, HouseholdRole } from '@/types';
 import {
   saveInventoryLocal,
   loadInventoryLocal,
@@ -9,6 +9,8 @@ import {
   getInventoryItemsByUserMock,
   getInventoryItemsByHouseholdMock,
 } from '@/services/dynamoDBService';
+import { canEditItem, canDeleteItem } from '@/services/permissionService';
+import { logPurchaseRemoval } from '@/services/suggestionService';
 
 interface InventoryState {
   items: InventoryItem[];
@@ -16,11 +18,14 @@ interface InventoryState {
   isLoading: boolean;
   isSyncing: boolean;
   error: string | null;
+  userRole: HouseholdRole | null;
+  currentUserId: string | null;
 
   // Actions
   addItem: (item: Omit<InventoryItem, 'id' | 'addedAt' | 'updatedAt'>) => Promise<void>;
   updateItem: (id: string, updates: Partial<InventoryItem>) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
+  setUserContext: (userId: string, role: HouseholdRole | null) => void;
   setItems: (items: InventoryItem[]) => void;
   setHouseholdItems: (items: InventoryItem[]) => void;
   setLoading: (loading: boolean) => void;
@@ -46,6 +51,8 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   isLoading: false,
   isSyncing: false,
   error: null,
+  userRole: null,
+  currentUserId: null,
 
   addItem: async (itemData) => {
     const now = new Date().toISOString();
@@ -71,8 +78,21 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     });
   },
 
+  setUserContext: (userId, role) => set({ currentUserId: userId, userRole: role }),
+
   updateItem: async (id, updates) => {
     const now = new Date().toISOString();
+    const item = get().items.find((i) => i.id === id)
+      || get().householdItems.find((i) => i.id === id);
+
+    // Permission check for household items
+    if (item?.ownership === 'household' && item.userId) {
+      const { userRole, currentUserId } = get();
+      if (userRole && currentUserId && !canEditItem(userRole, item.userId, currentUserId)) {
+        throw new Error('You do not have permission to edit this item');
+      }
+    }
+
     let updatedItem: InventoryItem | null = null;
 
     set((state) => ({
@@ -101,6 +121,19 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
 
   deleteItem: async (id) => {
     const itemToDelete = get().items.find((item) => item.id === id);
+
+    // Permission check for household items
+    if (itemToDelete?.ownership === 'household' && itemToDelete.userId) {
+      const { userRole, currentUserId } = get();
+      if (userRole && currentUserId && !canDeleteItem(userRole, itemToDelete.userId, currentUserId)) {
+        throw new Error('You do not have permission to delete this item');
+      }
+    }
+
+    // Log removal for purchase history suggestions
+    if (itemToDelete) {
+      logPurchaseRemoval(itemToDelete);
+    }
 
     set((state) => ({
       items: state.items.filter((item) => item.id !== id),

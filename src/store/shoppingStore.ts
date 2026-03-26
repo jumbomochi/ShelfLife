@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { ShoppingList, ShoppingListItem, ItemOwnership } from '@/types';
+import { ShoppingList, ShoppingListItem, ItemOwnership, HouseholdRole } from '@/types';
+import { canDeleteItem } from '@/services/permissionService';
 import {
   saveShoppingListsLocal,
   loadShoppingListsLocal,
@@ -16,10 +17,13 @@ interface ShoppingState {
   activeListId: string | null;
   isLoading: boolean;
   isSyncing: boolean;
+  userRole: HouseholdRole | null;
+  currentUserId: string | null;
 
   // Actions
   createList: (name: string, ownership?: ItemOwnership, householdId?: string) => string;
   deleteList: (listId: string) => Promise<void>;
+  setUserContext: (userId: string, role: HouseholdRole | null) => void;
   setActiveList: (listId: string | null) => void;
 
   // Item actions
@@ -62,6 +66,8 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
   activeListId: null,
   isLoading: false,
   isSyncing: false,
+  userRole: null,
+  currentUserId: null,
 
   createList: (name, ownership = 'personal', householdId) => {
     const now = new Date().toISOString();
@@ -88,8 +94,17 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
     return newList.id;
   },
 
+  setUserContext: (userId, role) => set({ currentUserId: userId, userRole: role }),
+
   deleteList: async (listId) => {
     const listToDelete = get().lists.find((l) => l.id === listId);
+
+    if (listToDelete?.ownership === 'household') {
+      const { userRole, currentUserId } = get();
+      if (userRole && currentUserId && !canDeleteItem(userRole, listToDelete.userId, currentUserId)) {
+        throw new Error('You do not have permission to delete this list');
+      }
+    }
 
     set((state) => ({
       lists: state.lists.filter((l) => l.id !== listId),

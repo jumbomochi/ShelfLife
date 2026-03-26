@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,10 +9,18 @@ import {
   Alert,
   FlatList,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { detectGroceryItemsMock, DetectedItem } from '@/services/rekognitionService';
+import { lookupBarcodeMock, suggestLocation } from '@/services/barcodeService';
 import { useInventoryStore } from '@/store';
+import { RootStackParamList } from '@/types';
+
+type CameraScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+type ScanMode = 'photo' | 'barcode';
 
 interface CameraScreenProps {
   onClose: () => void;
@@ -20,11 +28,14 @@ interface CameraScreenProps {
 }
 
 export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProps) {
+  const navigation = useNavigation<CameraScreenNavigationProp>();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [detectedItems, setDetectedItems] = useState<DetectedItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [scanMode, setScanMode] = useState<ScanMode>('photo');
+  const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const { addItem } = useInventoryStore();
 
@@ -108,6 +119,80 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
     setDetectedItems([]);
     setSelectedItems(new Set());
   };
+
+  const handleBarcodeScanned = useCallback(
+    async ({ data }: BarcodeScanningResult) => {
+      if (isScanning) return;
+      setIsScanning(true);
+
+      const product = await lookupBarcodeMock(data);
+
+      if (product) {
+        const location = suggestLocation(product.categories ?? []);
+        Alert.alert(
+          product.name,
+          `${product.brand ? product.brand + ' · ' : ''}${product.quantity ?? ''}`.trim() || 'Barcode found',
+          [
+            {
+              text: 'Add Directly',
+              onPress: () => {
+                addItem({
+                  userId: 'current-user',
+                  name: product.name,
+                  quantity: 1,
+                  unit: 'pcs',
+                  location,
+                  ownership: 'personal',
+                });
+                Alert.alert('Success', `${product.name} added to inventory`);
+                onItemsAdded?.();
+                onClose();
+              },
+            },
+            {
+              text: 'Edit First',
+              onPress: () => {
+                onClose();
+                navigation.navigate('AddItem', {
+                  mode: 'manual',
+                  prefill: {
+                    name: product.name,
+                    quantity: 1,
+                    unit: 'pcs',
+                    location,
+                  },
+                });
+              },
+            },
+            {
+              text: 'Scan Again',
+              style: 'cancel',
+              onPress: () => setIsScanning(false),
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Product Not Found',
+          'No product information found for this barcode.',
+          [
+            {
+              text: 'Scan Again',
+              onPress: () => setIsScanning(false),
+            },
+            {
+              text: 'Add Manually',
+              onPress: () => {
+                onClose();
+                navigation.navigate('AddItem', { mode: 'manual' });
+              },
+            },
+          ]
+        );
+      }
+    },
+    [isScanning, addItem, navigation, onClose, onItemsAdded]
+  );
 
   if (!permission) {
     return <View style={styles.container} />;
@@ -210,23 +295,73 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
 
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} ref={cameraRef} facing="back">
+      <CameraView
+        style={styles.camera}
+        ref={cameraRef}
+        facing="back"
+        barcodeScannerSettings={
+          scanMode === 'barcode'
+            ? { barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'code128', 'code39'] }
+            : undefined
+        }
+        onBarcodeScanned={scanMode === 'barcode' ? handleBarcodeScanned : undefined}
+      >
         <View style={styles.cameraOverlay}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Text style={styles.closeButtonText}>Close</Text>
-          </TouchableOpacity>
-
-          <View style={styles.cameraControls}>
-            <TouchableOpacity style={styles.galleryButton} onPress={pickImage}>
-              <Text style={styles.galleryButtonText}>Gallery</Text>
+          <View style={styles.topRow}>
+            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+              <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
-              <View style={styles.captureButtonInner} />
-            </TouchableOpacity>
-
-            <View style={styles.placeholder} />
+            <View style={styles.modeToggle}>
+              <TouchableOpacity
+                style={[styles.modeButton, scanMode === 'photo' && styles.modeButtonActive]}
+                onPress={() => setScanMode('photo')}
+              >
+                <Text
+                  style={[
+                    styles.modeButtonText,
+                    scanMode === 'photo' && styles.modeButtonTextActive,
+                  ]}
+                >
+                  Photo
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeButton, scanMode === 'barcode' && styles.modeButtonActive]}
+                onPress={() => {
+                  setScanMode('barcode');
+                  setIsScanning(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.modeButtonText,
+                    scanMode === 'barcode' && styles.modeButtonTextActive,
+                  ]}
+                >
+                  Barcode
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {scanMode === 'barcode' ? (
+            <View style={styles.barcodeHintContainer}>
+              <Text style={styles.barcodeHintText}>Point camera at a barcode</Text>
+            </View>
+          ) : (
+            <View style={styles.cameraControls}>
+              <TouchableOpacity style={styles.galleryButton} onPress={pickImage}>
+                <Text style={styles.galleryButtonText}>Gallery</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
+                <View style={styles.captureButtonInner} />
+              </TouchableOpacity>
+
+              <View style={styles.placeholder} />
+            </View>
+          )}
         </View>
       </CameraView>
     </View>
@@ -246,14 +381,55 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 20,
   },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
   closeButton: {
-    alignSelf: 'flex-end',
     padding: 10,
   },
   closeButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 8,
+    padding: 2,
+  },
+  modeButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  modeButtonActive: {
+    backgroundColor: '#fff',
+  },
+  modeButtonText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modeButtonTextActive: {
+    color: '#000',
+    fontWeight: '600',
+  },
+  barcodeHintContainer: {
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  barcodeHintText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   cameraControls: {
     flexDirection: 'row',

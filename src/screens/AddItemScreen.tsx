@@ -10,8 +10,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useRoute, RouteProp } from '@react-navigation/native';
 import { useInventoryStore } from '@/store';
-import { ItemLocation, ItemOwnership } from '@/types';
+import { ItemLocation, ItemOwnership, RootStackParamList } from '@/types';
+
+type AddItemRouteProp = RouteProp<RootStackParamList, 'AddItem'>;
 
 interface AddItemScreenProps {
   onClose: () => void;
@@ -21,12 +24,14 @@ interface AddItemScreenProps {
 const UNITS = ['pcs', 'kg', 'g', 'L', 'ml', 'dozen', 'pack', 'bottle', 'can', 'box'];
 
 export default function AddItemScreen({ onClose, onSuccess }: AddItemScreenProps) {
+  const route = useRoute<AddItemRouteProp>();
+  const prefill = route.params?.prefill;
   const { addItem } = useInventoryStore();
 
-  const [name, setName] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [unit, setUnit] = useState('pcs');
-  const [location, setLocation] = useState<ItemLocation>('fridge');
+  const [name, setName] = useState(prefill?.name ?? '');
+  const [quantity, setQuantity] = useState(prefill?.quantity != null ? String(prefill.quantity) : '1');
+  const [unit, setUnit] = useState(prefill?.unit ?? 'pcs');
+  const [location, setLocation] = useState<ItemLocation>(prefill?.location ?? 'fridge');
   const [ownership, setOwnership] = useState<ItemOwnership>('personal');
   const [expirationDate, setExpirationDate] = useState('');
 
