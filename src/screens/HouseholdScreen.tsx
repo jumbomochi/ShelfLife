@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,20 +12,27 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuthStore } from '@/store';
+import { HouseholdRole, HouseholdMember, HouseholdInvitation } from '@/types';
+import {
+  canDeleteHousehold,
+  canRemoveMember,
+  canChangeRoles,
+  canManageInvitations,
+} from '@/services/permissionService';
+import {
+  sendInvitation,
+  revokeInvitation,
+  getInvitationsForHousehold,
+  getPendingInvitationsForEmail,
+  acceptInvitation,
+  declineInvitation,
+} from '@/services/emailService';
 
 interface HouseholdScreenProps {
   onClose: () => void;
 }
 
-// Mock household data for development
-interface HouseholdMember {
-  id: string;
-  name: string;
-  email: string;
-  isOwner: boolean;
-}
-
-interface Household {
+interface LocalHousehold {
   id: string;
   name: string;
   inviteCode: string;
@@ -34,12 +41,33 @@ interface Household {
 
 export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
   const { user } = useAuthStore();
-  const [household, setHousehold] = useState<Household | null>(null);
+  const [household, setHousehold] = useState<LocalHousehold | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showJoinForm, setShowJoinForm] = useState(false);
   const [householdName, setHouseholdName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [householdInvitations, setHouseholdInvitations] = useState<HouseholdInvitation[]>([]);
+  const [incomingInvitations, setIncomingInvitations] = useState<HouseholdInvitation[]>([]);
+
+  const getCurrentUserRole = (): HouseholdRole => {
+    if (!household) return 'member';
+    const member = household.members.find(
+      (m) => m.userId === (user?.sub || 'current-user')
+    );
+    return member?.role || 'member';
+  };
+  const currentRole = getCurrentUserRole();
+
+  useEffect(() => {
+    if (household) {
+      getInvitationsForHousehold(household.id).then(setHouseholdInvitations);
+    }
+    if (user?.email) {
+      getPendingInvitationsForEmail(user.email).then(setIncomingInvitations);
+    }
+  }, [household?.id, user?.email]);
 
   const handleCreateHousehold = async () => {
     if (!householdName.trim()) {
@@ -52,16 +80,16 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      const newHousehold: Household = {
+      const newHousehold: LocalHousehold = {
         id: Math.random().toString(36).substring(2, 10),
         name: householdName.trim(),
         inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
         members: [
           {
-            id: user?.sub || 'current-user',
+            userId: user?.sub || 'current-user',
+            role: 'owner',
             name: user?.username || 'You',
             email: user?.email || 'user@example.com',
-            isOwner: true,
           },
         ],
       };
@@ -89,22 +117,22 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Mock: pretend we found and joined a household
-      const joinedHousehold: Household = {
+      const joinedHousehold: LocalHousehold = {
         id: Math.random().toString(36).substring(2, 10),
         name: 'Smith Family',
         inviteCode: inviteCode.trim().toUpperCase(),
         members: [
           {
-            id: 'owner-123',
+            userId: 'owner-123',
+            role: 'owner',
             name: 'John Smith',
             email: 'john@example.com',
-            isOwner: true,
           },
           {
-            id: user?.sub || 'current-user',
+            userId: user?.sub || 'current-user',
+            role: 'member',
             name: user?.username || 'You',
             email: user?.email || 'user@example.com',
-            isOwner: false,
           },
         ],
       };
@@ -121,11 +149,7 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
   };
 
   const handleLeaveHousehold = () => {
-    const isOwner = household?.members.find(
-      (m) => m.id === (user?.sub || 'current-user')
-    )?.isOwner;
-
-    const message = isOwner
+    const message = canDeleteHousehold(currentRole)
       ? 'As the owner, leaving will delete the household for all members. Are you sure?'
       : 'Are you sure you want to leave this household?';
 
@@ -158,6 +182,11 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
   };
 
   const handleRemoveMember = (memberId: string) => {
+    if (!canRemoveMember(currentRole)) {
+      Alert.alert('Error', 'You do not have permission to remove members');
+      return;
+    }
+
     Alert.alert(
       'Remove Member',
       'Are you sure you want to remove this member from the household?',
@@ -170,7 +199,7 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
             if (household) {
               setHousehold({
                 ...household,
-                members: household.members.filter((m) => m.id !== memberId),
+                members: household.members.filter((m) => m.userId !== memberId),
               });
             }
           },
@@ -179,9 +208,142 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
     );
   };
 
-  const isCurrentUserOwner = household?.members.find(
-    (m) => m.id === (user?.sub || 'current-user')
-  )?.isOwner;
+  const handleSendInvitation = async () => {
+    if (!inviteEmail.trim() || !household) return;
+    if (!canManageInvitations(currentRole)) {
+      Alert.alert('Error', 'You do not have permission to send invitations');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await sendInvitation(household.id, household.name, inviteEmail.trim(), user?.sub || 'current-user');
+      Alert.alert('Success', `Invitation sent to ${inviteEmail.trim()}`);
+      setInviteEmail('');
+      const updated = await getInvitationsForHousehold(household.id);
+      setHouseholdInvitations(updated);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send invitation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRevokeInvitation = async (invitationId: string) => {
+    try {
+      await revokeInvitation(invitationId);
+      const updated = await getInvitationsForHousehold(household!.id);
+      setHouseholdInvitations(updated);
+    } catch {
+      Alert.alert('Error', 'Failed to revoke invitation');
+    }
+  };
+
+  const handleAcceptInvitation = async (invitation: HouseholdInvitation) => {
+    try {
+      setIsLoading(true);
+      await acceptInvitation(invitation.id, user?.sub || 'current-user');
+      const joinedHousehold: LocalHousehold = {
+        id: invitation.householdId,
+        name: invitation.householdName,
+        inviteCode: '',
+        members: [{
+          userId: user?.sub || 'current-user',
+          role: 'member',
+          name: user?.username || 'You',
+          email: user?.email || 'user@example.com',
+        }],
+      };
+      setHousehold(joinedHousehold);
+      setIncomingInvitations([]);
+      Alert.alert('Success', `Joined ${invitation.householdName}!`);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to accept invitation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeclineInvitation = async (invitationId: string) => {
+    try {
+      await declineInvitation(invitationId);
+      setIncomingInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+    } catch {
+      Alert.alert('Error', 'Failed to decline invitation');
+    }
+  };
+
+  const handleChangeRole = (memberId: string, newRole: HouseholdRole) => {
+    if (!canChangeRoles(currentRole)) {
+      Alert.alert('Error', 'Only the owner can change roles');
+      return;
+    }
+    if (newRole === 'owner') {
+      Alert.alert('Transfer Ownership',
+        'This will make this member the new owner and change your role to admin. Continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Transfer', style: 'destructive',
+            onPress: () => {
+              if (household) {
+                setHousehold({
+                  ...household,
+                  members: household.members.map((m) => {
+                    if (m.userId === memberId) return { ...m, role: 'owner' };
+                    if (m.userId === (user?.sub || 'current-user')) return { ...m, role: 'admin' };
+                    return m;
+                  }),
+                });
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+    if (household) {
+      setHousehold({
+        ...household,
+        members: household.members.map((m) =>
+          m.userId === memberId ? { ...m, role: newRole } : m
+        ),
+      });
+    }
+  };
+
+  const getRoleBadgeStyle = (role: HouseholdRole) => {
+    switch (role) {
+      case 'owner': return styles.roleBadgeOwner;
+      case 'admin': return styles.roleBadgeAdmin;
+      case 'member': return styles.roleBadgeMember;
+    }
+  };
+
+  const getRoleBadgeTextStyle = (role: HouseholdRole) => {
+    if (role === 'member') return [styles.ownerBadgeText, { color: '#666' }];
+    return styles.ownerBadgeText;
+  };
+
+  const getRoleLabel = (role: HouseholdRole) => {
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  };
+
+  const getNextRole = (role: HouseholdRole): HouseholdRole => {
+    switch (role) {
+      case 'member': return 'admin';
+      case 'admin': return 'owner';
+      default: return role;
+    }
+  };
+
+  const getPreviousRole = (role: HouseholdRole): HouseholdRole => {
+    switch (role) {
+      case 'admin': return 'member';
+      default: return role;
+    }
+  };
+
+  const pendingInvitations = householdInvitations.filter((i) => i.status === 'pending');
 
   // No household - show create/join options
   if (!household) {
@@ -196,6 +358,39 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
         </View>
 
         <ScrollView style={styles.content} contentContainerStyle={styles.centeredContent}>
+          {incomingInvitations.length > 0 && (
+            <View style={styles.incomingSection}>
+              <Text style={styles.incomingSectionTitle}>Pending Invitations</Text>
+              {incomingInvitations.map((invitation) => (
+                <View key={invitation.id} style={styles.incomingCard}>
+                  <Text style={styles.incomingHousehold}>{invitation.householdName}</Text>
+                  <Text style={styles.incomingExpiry}>
+                    Expires {new Date(invitation.expiresAt).toLocaleDateString()}
+                  </Text>
+                  <View style={styles.incomingActions}>
+                    <TouchableOpacity
+                      style={styles.acceptButton}
+                      onPress={() => handleAcceptInvitation(invitation)}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={styles.acceptButtonText}>Accept</Text>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.declineButton}
+                      onPress={() => handleDeclineInvitation(invitation.id)}
+                    >
+                      <Text style={styles.declineButtonText}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
           {!showCreateForm && !showJoinForm ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyTitle}>No Household</Text>
@@ -331,11 +526,59 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
           </Text>
         </View>
 
+        {/* Invite by Email Section */}
+        {canManageInvitations(currentRole) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Invite by Email</Text>
+            <View style={styles.inviteEmailRow}>
+              <TextInput
+                style={styles.inviteEmailInput}
+                placeholder="Email address"
+                placeholderTextColor="#8E8E93"
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={[styles.inviteSendButton, isLoading && styles.buttonDisabled]}
+                onPress={handleSendInvitation}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.inviteSendButtonText}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {pendingInvitations.length > 0 && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>Pending Invitations</Text>
+                {pendingInvitations.map((invitation) => (
+                  <View key={invitation.id} style={styles.invitationRow}>
+                    <View style={styles.invitationInfo}>
+                      <Text style={styles.invitationEmail}>{invitation.email}</Text>
+                      <Text style={styles.invitationDate}>
+                        Expires {new Date(invitation.expiresAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => handleRevokeInvitation(invitation.id)}>
+                      <Text style={styles.revokeText}>Revoke</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Members Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Members</Text>
           {household.members.map((member) => (
-            <View key={member.id} style={styles.memberRow}>
+            <View key={member.userId} style={styles.memberRow}>
               <View style={styles.memberAvatar}>
                 <Text style={styles.memberAvatarText}>
                   {member.name.charAt(0).toUpperCase()}
@@ -344,25 +587,46 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
               <View style={styles.memberInfo}>
                 <Text style={styles.memberName}>
                   {member.name}
-                  {member.id === (user?.sub || 'current-user') && ' (You)'}
+                  {member.userId === (user?.sub || 'current-user') && ' (You)'}
                 </Text>
                 <Text style={styles.memberEmail}>{member.email}</Text>
               </View>
-              {member.isOwner ? (
-                <View style={styles.ownerBadge}>
-                  <Text style={styles.ownerBadgeText}>Owner</Text>
-                </View>
-              ) : (
-                isCurrentUserOwner &&
-                member.id !== (user?.sub || 'current-user') && (
+              <View style={getRoleBadgeStyle(member.role)}>
+                <Text style={getRoleBadgeTextStyle(member.role)}>
+                  {getRoleLabel(member.role)}
+                </Text>
+              </View>
+              {canChangeRoles(currentRole) &&
+                member.userId !== (user?.sub || 'current-user') && (
+                  <View style={{ flexDirection: 'row', marginLeft: 8 }}>
+                    {member.role !== 'owner' && (
+                      <TouchableOpacity
+                        style={styles.roleChangeButton}
+                        onPress={() => handleChangeRole(member.userId, getNextRole(member.role))}
+                      >
+                        <Text style={styles.roleChangeText}>&#9650;</Text>
+                      </TouchableOpacity>
+                    )}
+                    {member.role === 'admin' && (
+                      <TouchableOpacity
+                        style={styles.roleChangeButton}
+                        onPress={() => handleChangeRole(member.userId, getPreviousRole(member.role))}
+                      >
+                        <Text style={styles.roleChangeText}>&#9660;</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              {canRemoveMember(currentRole) &&
+                member.userId !== (user?.sub || 'current-user') &&
+                member.role !== 'owner' && (
                   <TouchableOpacity
                     style={styles.removeButton}
-                    onPress={() => handleRemoveMember(member.id)}
+                    onPress={() => handleRemoveMember(member.userId)}
                   >
                     <Text style={styles.removeButtonText}>Remove</Text>
                   </TouchableOpacity>
-                )
-              )}
+                )}
             </View>
           ))}
         </View>
@@ -370,7 +634,7 @@ export function HouseholdScreen({ onClose }: HouseholdScreenProps) {
         {/* Leave Household */}
         <TouchableOpacity style={styles.leaveButton} onPress={handleLeaveHousehold}>
           <Text style={styles.leaveButtonText}>
-            {isCurrentUserOwner ? 'Delete Household' : 'Leave Household'}
+            {canDeleteHousehold(currentRole) ? 'Delete Household' : 'Leave Household'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -595,6 +859,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  roleBadgeOwner: {
+    backgroundColor: '#34C759',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  roleBadgeAdmin: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  roleBadgeMember: {
+    backgroundColor: '#E5E5EA',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   removeButton: {
     padding: 8,
   },
@@ -614,6 +896,120 @@ const styles = StyleSheet.create({
   leaveButtonText: {
     color: '#FF3B30',
     fontSize: 17,
+    fontWeight: '600',
+  },
+  inviteEmailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inviteEmailInput: {
+    flex: 1,
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    marginRight: 8,
+  },
+  inviteSendButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  inviteSendButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  invitationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5EA',
+  },
+  invitationInfo: {
+    flex: 1,
+  },
+  invitationEmail: {
+    fontSize: 15,
+    color: '#000',
+  },
+  invitationDate: {
+    fontSize: 12,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+  revokeText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  incomingSection: {
+    padding: 16,
+    marginBottom: 8,
+  },
+  incomingSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 12,
+  },
+  incomingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  incomingHousehold: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+  },
+  incomingExpiry: {
+    fontSize: 13,
+    color: '#8E8E93',
+    marginBottom: 12,
+  },
+  incomingActions: {
+    flexDirection: 'row',
+  },
+  acceptButton: {
+    backgroundColor: '#34C759',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  declineButton: {
+    backgroundColor: '#E5E5EA',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  declineButtonText: {
+    color: '#666',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  roleChangeButton: {
+    padding: 4,
+    marginHorizontal: 2,
+  },
+  roleChangeText: {
+    fontSize: 12,
+    color: '#007AFF',
     fontWeight: '600',
   },
 });
