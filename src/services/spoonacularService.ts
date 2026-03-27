@@ -1,7 +1,12 @@
 import { Recipe, RecipeDetail, RecipeIngredient } from '@/types';
+import {
+  getCached,
+  setCache,
+  SEARCH_CACHE_TTL,
+  DETAIL_CACHE_TTL,
+} from '@/services/recipeCacheService';
 
-const SPOONACULAR_API_KEY = process.env.EXPO_PUBLIC_SPOONACULAR_API_KEY || '';
-const BASE_URL = 'https://api.spoonacular.com';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_GATEWAY_URL || '';
 
 // Dietary Restrictions (from Spoonacular API)
 export const DIETARY_RESTRICTIONS = [
@@ -68,25 +73,33 @@ interface SpoonacularSearchResult {
  * Search recipes by query string
  */
 export async function searchRecipes(params: SearchRecipesParams): Promise<SpoonacularSearchResult> {
-  const queryParams = new URLSearchParams({
-    apiKey: SPOONACULAR_API_KEY,
+  if (!API_BASE_URL) {
+    const results = await searchRecipesMock(params.query || '', params.diet, params.cuisine);
+    return { results, offset: 0, number: results.length, totalResults: results.length };
+  }
+
+  const queryParams: Record<string, string | undefined> = {
+    query: params.query,
+    diet: params.diet,
+    cuisine: params.cuisine,
+    maxReadyTime: params.maxReadyTime?.toString(),
     number: String(params.number || 10),
     offset: String(params.offset || 0),
     addRecipeInformation: 'true',
-  });
+  };
 
-  if (params.query) queryParams.append('query', params.query);
-  if (params.diet) queryParams.append('diet', params.diet);
-  if (params.cuisine) queryParams.append('cuisine', params.cuisine);
-  if (params.maxReadyTime) queryParams.append('maxReadyTime', String(params.maxReadyTime));
+  const cached = await getCached<SpoonacularSearchResult>('search', queryParams);
+  if (cached) return cached;
 
-  const response = await fetch(`${BASE_URL}/recipes/complexSearch?${queryParams}`);
+  const urlParams = new URLSearchParams();
+  Object.entries(queryParams).forEach(([k, v]) => { if (v) urlParams.append(k, v); });
 
-  if (!response.ok) {
-    throw new Error('Failed to search recipes');
-  }
+  const response = await fetch(`${API_BASE_URL}/recipes/search?${urlParams}`);
+  if (!response.ok) throw new Error('Failed to search recipes');
 
-  return response.json();
+  const data: SpoonacularSearchResult = await response.json();
+  await setCache('search', queryParams, data, SEARCH_CACHE_TTL);
+  return data;
 }
 
 /**
@@ -96,24 +109,28 @@ export async function findRecipesByIngredients(
   ingredients: string[],
   number: number = 10
 ): Promise<Recipe[]> {
-  const queryParams = new URLSearchParams({
-    apiKey: SPOONACULAR_API_KEY,
-    ingredients: ingredients.join(','),
-    number: String(number),
-    ranking: '2', // Maximize used ingredients
-    ignorePantry: 'false',
-  });
-
-  const response = await fetch(`${BASE_URL}/recipes/findByIngredients?${queryParams}`);
-
-  if (!response.ok) {
-    throw new Error('Failed to find recipes by ingredients');
+  if (!API_BASE_URL) {
+    return findRecipesByIngredientsMock(ingredients);
   }
 
-  const results = await response.json();
+  const queryParams: Record<string, string | undefined> = {
+    ingredients: ingredients.join(','),
+    number: String(number),
+    ranking: '2',
+    ignorePantry: 'false',
+  };
 
-  // Transform to our Recipe format
-  return results.map((r: any) => ({
+  const cached = await getCached<Recipe[]>('findByIngredients', queryParams);
+  if (cached) return cached;
+
+  const urlParams = new URLSearchParams();
+  Object.entries(queryParams).forEach(([k, v]) => { if (v) urlParams.append(k, v); });
+
+  const response = await fetch(`${API_BASE_URL}/recipes/findByIngredients?${urlParams}`);
+  if (!response.ok) throw new Error('Failed to find recipes by ingredients');
+
+  const results = await response.json();
+  const recipes: Recipe[] = results.map((r: any) => ({
     id: r.id,
     title: r.title,
     image: r.image,
@@ -125,46 +142,30 @@ export async function findRecipesByIngredients(
     missedIngredientCount: r.missedIngredientCount,
     missedIngredients: r.missedIngredients?.map((i: any) => i.name) || [],
   }));
+
+  await setCache('findByIngredients', queryParams, recipes, SEARCH_CACHE_TTL);
+  return recipes;
 }
 
 /**
  * Get detailed recipe information
  */
 export async function getRecipeDetails(recipeId: number): Promise<RecipeDetail> {
-  const queryParams = new URLSearchParams({
-    apiKey: SPOONACULAR_API_KEY,
-  });
-
-  const response = await fetch(`${BASE_URL}/recipes/${recipeId}/information?${queryParams}`);
-
-  if (!response.ok) {
-    throw new Error('Failed to get recipe details');
+  if (!API_BASE_URL) {
+    return getRecipeDetailsMock(recipeId);
   }
 
-  return response.json();
-}
+  const queryParams = { id: String(recipeId) };
 
-/**
- * Get random recipes
- */
-export async function getRandomRecipes(number: number = 5, tags?: string[]): Promise<Recipe[]> {
-  const queryParams = new URLSearchParams({
-    apiKey: SPOONACULAR_API_KEY,
-    number: String(number),
-  });
+  const cached = await getCached<RecipeDetail>('recipeDetail', queryParams);
+  if (cached) return cached;
 
-  if (tags && tags.length > 0) {
-    queryParams.append('tags', tags.join(','));
-  }
+  const response = await fetch(`${API_BASE_URL}/recipes/${recipeId}`);
+  if (!response.ok) throw new Error('Failed to get recipe details');
 
-  const response = await fetch(`${BASE_URL}/recipes/random?${queryParams}`);
-
-  if (!response.ok) {
-    throw new Error('Failed to get random recipes');
-  }
-
-  const data = await response.json();
-  return data.recipes;
+  const data: RecipeDetail = await response.json();
+  await setCache('recipeDetail', queryParams, data, DETAIL_CACHE_TTL);
+  return data;
 }
 
 // Mock data for development without API key
