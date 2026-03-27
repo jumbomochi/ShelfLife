@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useRecipesStore } from '@/store';
 import { RecipeDetail } from '@/types';
-import { getRecipeDetailsMock } from '@/services/spoonacularService';
+import { getRecipeDetails } from '@/services/spoonacularService';
 
 interface RecipeDetailScreenProps {
   recipeId: number;
@@ -37,7 +37,7 @@ export default function RecipeDetailScreen({
   const loadRecipeDetails = async () => {
     setIsLoading(true);
     try {
-      const details = await getRecipeDetailsMock(recipeId);
+      const details = await getRecipeDetails(recipeId);
       setRecipe(details);
     } catch (error) {
       Alert.alert('Error', 'Failed to load recipe details');

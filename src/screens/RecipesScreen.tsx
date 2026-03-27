@@ -15,8 +15,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useRecipesStore, useInventoryStore } from '@/store';
 import { RootStackParamList, Recipe } from '@/types';
 import {
-  searchRecipesMock,
-  findRecipesByIngredientsMock,
+  searchRecipes,
+  findRecipesByIngredients,
   DIETARY_RESTRICTIONS,
   CUISINE_TYPES,
 } from '@/services/spoonacularService';
@@ -49,8 +49,13 @@ export default function RecipesScreen() {
 
     setLoading(true);
     try {
-      const results = await searchRecipesMock(searchQuery, selectedDiet, selectedCuisine);
-      setSearchResults(results);
+      const result = await searchRecipes({
+        query: searchQuery,
+        diet: selectedDiet || undefined,
+        cuisine: selectedCuisine || undefined,
+        number: 10,
+      });
+      setSearchResults(result.results);
     } catch (error) {
       console.error('Search error:', error);
     } finally {
@@ -72,7 +77,7 @@ export default function RecipesScreen() {
 
     setLoading(true);
     try {
-      const results = await findRecipesByIngredientsMock(ingredientNames);
+      const results = await findRecipesByIngredients(ingredientNames, 10);
       setMatchedRecipes(results);
     } catch (error) {
       console.error('Match error:', error);
