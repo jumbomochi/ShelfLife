@@ -37,6 +37,10 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# CDK
+backend/cdk.out/
+backend/dist/
+
 # generated native folders
 /ios
 /android
