@@ -2,6 +2,9 @@ import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as path from 'path';
 import { Construct } from 'constructs';
 
@@ -87,6 +90,58 @@ export class ShelfLifeStack extends cdk.Stack {
     savedRecipesTable.addGlobalSecondaryIndex({
       indexName: 'userId-index',
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+    });
+
+    // ============ S3 Image Storage ============
+
+    const imagesBucket = new s3.Bucket(this, 'ImagesBucket', {
+      bucketName: `shelflife-images-${this.account}-${this.region}`,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          maxAge: 3600,
+        },
+      ],
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // S3 Images Lambda (presigned URLs)
+    const s3Images = new lambda.Function(this, 'S3Images', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 's3-images.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda')),
+      memorySize: 128,
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        IMAGES_BUCKET: imagesBucket.bucketName,
+      },
+    });
+
+    imagesBucket.grantReadWrite(s3Images);
+
+    // Image Cleanup Lambda (scheduled)
+    const imageCleanup = new lambda.Function(this, 'ImageCleanup', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'image-cleanup.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda')),
+      memorySize: 256,
+      timeout: cdk.Duration.minutes(5),
+      environment: {
+        IMAGES_BUCKET: imagesBucket.bucketName,
+        INVENTORY_TABLE: inventoryTable.tableName,
+      },
+    });
+
+    imagesBucket.grantReadWrite(imageCleanup);
+    inventoryTable.grantReadData(imageCleanup);
+
+    new events.Rule(this, 'ImageCleanupSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.days(1)),
+      targets: [new targets.LambdaFunction(imageCleanup)],
     });
 
     // ============ DynamoDB CRUD Lambda ============
@@ -187,10 +242,23 @@ export class ShelfLifeStack extends cdk.Stack {
     const householdByInvite = householdInvite.addResource('{code}');
     householdByInvite.addMethod('GET', crudIntegration);
 
+    // --- Images ---
+    const s3Integration = new apigateway.LambdaIntegration(s3Images);
+    const images = api.root.addResource('images');
+    const uploadUrl = images.addResource('upload-url');
+    uploadUrl.addMethod('POST', s3Integration);
+    const imageByKey = images.addResource('{key}');
+    imageByKey.addMethod('GET', s3Integration);
+
     // Outputs
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: api.url,
       description: 'API Gateway URL — set as EXPO_PUBLIC_API_GATEWAY_URL',
+    });
+
+    new cdk.CfnOutput(this, 'ImagesBucketName', {
+      value: imagesBucket.bucketName,
+      description: 'S3 bucket for item images',
     });
   }
 }
