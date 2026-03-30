@@ -1,5 +1,7 @@
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Image } from 'react-native';
 import { InventoryItem } from '@/types';
+import { getImageUrl } from '@/services/s3Service';
 
 interface InventoryItemCardProps {
   item: InventoryItem;
@@ -36,6 +38,16 @@ export default function InventoryItemCard({
   const expirationStatus = getExpirationStatus(item.expirationDate);
   const isHousehold = item.ownership === 'household';
 
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item.imageUrl && item.imageUrl.startsWith('images/')) {
+      getImageUrl(item.imageUrl).then(setResolvedImageUrl).catch(() => {});
+    } else if (item.imageUrl) {
+      setResolvedImageUrl(item.imageUrl);
+    }
+  }, [item.imageUrl]);
+
   return (
     <TouchableOpacity
       style={[
@@ -45,7 +57,13 @@ export default function InventoryItemCard({
       onPress={() => onPress?.(item)}
       activeOpacity={0.7}
     >
-      <View style={styles.leftContent}>
+      {resolvedImageUrl && (
+        <Image
+          source={{ uri: resolvedImageUrl }}
+          style={styles.thumbnail}
+        />
+      )}
+      <View style={[styles.leftContent, resolvedImageUrl && styles.leftContentWithImage]}>
         <View style={styles.nameRow}>
           <Text style={styles.name}>{item.name}</Text>
           {isHousehold && (
@@ -174,5 +192,15 @@ const styles = StyleSheet.create({
   deleteText: {
     fontSize: 12,
     color: '#FF3B30',
+  },
+  thumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    marginRight: 12,
+    backgroundColor: '#E5E5EA',
+  },
+  leftContentWithImage: {
+    flex: 1,
   },
 });
