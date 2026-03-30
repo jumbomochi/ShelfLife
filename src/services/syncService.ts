@@ -1,17 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import {
-  createInventoryItemMock,
-  updateInventoryItemMock,
-  deleteInventoryItemMock,
-  getInventoryItemsByUserMock,
-  createShoppingListMock,
-  updateShoppingListMock,
-  deleteShoppingListMock,
-  getShoppingListsByUserMock,
-  createSavedRecipeMock,
-  deleteSavedRecipeMock,
-  getSavedRecipesByUserMock,
+  createInventoryItem,
+  updateInventoryItem,
+  deleteInventoryItem,
+  getInventoryItemsByUser,
+  createShoppingList,
+  updateShoppingList,
+  deleteShoppingList,
+  getShoppingListsByUser,
+  createSavedRecipe,
+  deleteSavedRecipe,
+  getSavedRecipesByUser,
 } from './dynamoDBService';
 import { InventoryItem, ShoppingList, SavedRecipe } from '@/types';
 
@@ -152,13 +152,13 @@ async function processOperation(operation: SyncOperation, userId: string): Promi
 async function processInventoryOperation(operation: SyncOperation): Promise<void> {
   switch (operation.type) {
     case 'CREATE':
-      await createInventoryItemMock(operation.data);
+      await createInventoryItem(operation.data);
       break;
     case 'UPDATE':
-      await updateInventoryItemMock(operation.data.id, operation.data);
+      await updateInventoryItem(operation.data.id, operation.data.userId, operation.data);
       break;
     case 'DELETE':
-      await deleteInventoryItemMock(operation.data.id);
+      await deleteInventoryItem(operation.data.id, operation.data.userId || '');
       break;
   }
 }
@@ -166,13 +166,13 @@ async function processInventoryOperation(operation: SyncOperation): Promise<void
 async function processShoppingListOperation(operation: SyncOperation): Promise<void> {
   switch (operation.type) {
     case 'CREATE':
-      await createShoppingListMock(operation.data);
+      await createShoppingList(operation.data);
       break;
     case 'UPDATE':
-      await updateShoppingListMock(operation.data.id, operation.data);
+      await updateShoppingList(operation.data.id, operation.data.userId, operation.data);
       break;
     case 'DELETE':
-      await deleteShoppingListMock(operation.data.id);
+      await deleteShoppingList(operation.data.id, operation.data.userId || '');
       break;
   }
 }
@@ -180,10 +180,10 @@ async function processShoppingListOperation(operation: SyncOperation): Promise<v
 async function processSavedRecipeOperation(operation: SyncOperation): Promise<void> {
   switch (operation.type) {
     case 'CREATE':
-      await createSavedRecipeMock(operation.data);
+      await createSavedRecipe(operation.data);
       break;
     case 'DELETE':
-      await deleteSavedRecipeMock(operation.data.id);
+      await deleteSavedRecipe(operation.data.id, operation.data.userId || '');
       break;
   }
 }
@@ -212,9 +212,9 @@ export async function fullSync(userId: string): Promise<{
 
     // Then pull from server
     const [inventory, shoppingLists, savedRecipes] = await Promise.all([
-      getInventoryItemsByUserMock(userId),
-      getShoppingListsByUserMock(userId),
-      getSavedRecipesByUserMock(userId),
+      getInventoryItemsByUser(userId),
+      getShoppingListsByUser(userId),
+      getSavedRecipesByUser(userId),
     ]);
 
     // Save to local storage
