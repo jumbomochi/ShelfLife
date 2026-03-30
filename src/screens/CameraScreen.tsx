@@ -16,6 +16,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { detectGroceryItemsMock, DetectedItem } from '@/services/rekognitionService';
 import { lookupBarcodeMock, suggestLocation } from '@/services/barcodeService';
 import { useInventoryStore } from '@/store';
+import { uploadImage } from '@/services/s3Service';
 import { RootStackParamList } from '@/types';
 
 type CameraScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -36,6 +37,7 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [scanMode, setScanMode] = useState<ScanMode>('photo');
   const [isScanning, setIsScanning] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const { addItem } = useInventoryStore();
 
@@ -97,15 +99,31 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
     });
   };
 
-  const addSelectedItems = () => {
+  const addSelectedItems = async () => {
+    let imageUrl: string | undefined;
+
+    // Upload captured image if available
+    if (capturedImage) {
+      try {
+        setIsUploading(true);
+        imageUrl = await uploadImage(capturedImage);
+      } catch (error) {
+        console.error('Image upload failed:', error);
+        // Continue without image — don't block item creation
+      } finally {
+        setIsUploading(false);
+      }
+    }
+
     selectedItems.forEach((itemName) => {
       addItem({
-        userId: 'current-user', // TODO: Replace with actual user ID
+        userId: 'current-user',
         name: itemName,
         quantity: 1,
         unit: 'pcs',
         location: 'fridge',
         ownership: 'personal',
+        imageUrl,
       });
     });
 
@@ -272,14 +290,18 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
                 <TouchableOpacity
                   style={[
                     styles.addButton,
-                    selectedItems.size === 0 && styles.addButtonDisabled,
+                    (selectedItems.size === 0 || isUploading) && styles.addButtonDisabled,
                   ]}
                   onPress={addSelectedItems}
-                  disabled={selectedItems.size === 0}
+                  disabled={selectedItems.size === 0 || isUploading}
                 >
-                  <Text style={styles.addButtonText}>
-                    Add {selectedItems.size} Item(s)
-                  </Text>
+                  {isUploading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.addButtonText}>
+                      Add {selectedItems.size} Item(s)
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </>
             ) : (
