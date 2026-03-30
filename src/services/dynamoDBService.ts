@@ -1,142 +1,82 @@
-import {
-  DynamoDBClient,
-  PutItemCommand,
-  GetItemCommand,
-  QueryCommand,
-  DeleteItemCommand,
-  UpdateItemCommand,
-  BatchWriteItemCommand,
-} from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { InventoryItem, ShoppingList, SavedRecipe, User, Household } from '@/types';
 
-// AWS Configuration
-const AWS_REGION = process.env.EXPO_PUBLIC_AWS_REGION || 'us-east-1';
-const AWS_ACCESS_KEY_ID = process.env.EXPO_PUBLIC_AWS_ACCESS_KEY_ID || '';
-const AWS_SECRET_ACCESS_KEY = process.env.EXPO_PUBLIC_AWS_SECRET_ACCESS_KEY || '';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_GATEWAY_URL || '';
 
-// Table names
-const TABLES = {
-  USERS: process.env.EXPO_PUBLIC_DYNAMODB_USERS_TABLE || 'ShelfLife-Users',
-  INVENTORY: process.env.EXPO_PUBLIC_DYNAMODB_INVENTORY_TABLE || 'ShelfLife-Inventory',
-  SHOPPING_LISTS: process.env.EXPO_PUBLIC_DYNAMODB_SHOPPING_TABLE || 'ShelfLife-ShoppingLists',
-  SAVED_RECIPES: process.env.EXPO_PUBLIC_DYNAMODB_RECIPES_TABLE || 'ShelfLife-SavedRecipes',
-  HOUSEHOLDS: process.env.EXPO_PUBLIC_DYNAMODB_HOUSEHOLDS_TABLE || 'ShelfLife-Households',
-};
+// ============ API Helpers ============
 
-const dynamoClient = new DynamoDBClient({
-  region: AWS_REGION,
-  credentials: {
-    accessKeyId: AWS_ACCESS_KEY_ID,
-    secretAccessKey: AWS_SECRET_ACCESS_KEY,
-  },
-});
-
-// ============ Generic Helpers ============
-
-async function putItem<T extends Record<string, any>>(tableName: string, item: T): Promise<void> {
-  const command = new PutItemCommand({
-    TableName: tableName,
-    Item: marshall(item, { removeUndefinedValues: true }),
+async function apiPost<T>(path: string, body: T): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  await dynamoClient.send(command);
+  if (!response.ok) throw new Error(`POST ${path} failed: ${response.status}`);
 }
 
-async function getItem<T>(tableName: string, key: Record<string, any>): Promise<T | null> {
-  const command = new GetItemCommand({
-    TableName: tableName,
-    Key: marshall(key),
-  });
-  const response = await dynamoClient.send(command);
-  return response.Item ? (unmarshall(response.Item) as T) : null;
+async function apiGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  if (!response.ok) throw new Error(`GET ${path} failed: ${response.status}`);
+  return response.json();
 }
 
-async function queryItems<T>(
-  tableName: string,
-  keyCondition: string,
-  expressionValues: Record<string, any>,
-  indexName?: string
-): Promise<T[]> {
-  const command = new QueryCommand({
-    TableName: tableName,
-    IndexName: indexName,
-    KeyConditionExpression: keyCondition,
-    ExpressionAttributeValues: marshall(expressionValues),
-  });
-  const response = await dynamoClient.send(command);
-  return (response.Items || []).map((item) => unmarshall(item) as T);
+async function apiGetOrNull<T>(path: string): Promise<T | null> {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`GET ${path} failed: ${response.status}`);
+  return response.json();
 }
 
-async function deleteItem(tableName: string, key: Record<string, any>): Promise<void> {
-  const command = new DeleteItemCommand({
-    TableName: tableName,
-    Key: marshall(key),
+async function apiPut<T>(path: string, body: T): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  await dynamoClient.send(command);
+  if (!response.ok) throw new Error(`PUT ${path} failed: ${response.status}`);
+}
+
+async function apiDelete(path: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(`DELETE ${path} failed: ${response.status}`);
 }
 
 // ============ User Operations ============
 
 export async function createUser(user: User): Promise<void> {
-  await putItem(TABLES.USERS, user);
+  if (!API_BASE_URL) return createUserMock(user);
+  await apiPost('/users', user);
 }
 
 export async function getUser(userId: string): Promise<User | null> {
-  return getItem<User>(TABLES.USERS, { id: userId });
+  if (!API_BASE_URL) return getUserMock(userId);
+  return apiGetOrNull<User>(`/users/${userId}`);
 }
 
 export async function updateUser(userId: string, updates: Partial<User>): Promise<void> {
-  const updateExpressions: string[] = [];
-  const expressionValues: Record<string, any> = {};
-  const expressionNames: Record<string, string> = {};
-
-  Object.entries(updates).forEach(([key, value], index) => {
-    if (value !== undefined && key !== 'id') {
-      updateExpressions.push(`#field${index} = :value${index}`);
-      expressionNames[`#field${index}`] = key;
-      expressionValues[`:value${index}`] = value;
-    }
-  });
-
-  if (updateExpressions.length === 0) return;
-
-  const command = new UpdateItemCommand({
-    TableName: TABLES.USERS,
-    Key: marshall({ id: userId }),
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: expressionNames,
-    ExpressionAttributeValues: marshall(expressionValues),
-  });
-
-  await dynamoClient.send(command);
+  if (!API_BASE_URL) return;
+  await apiPut(`/users/${userId}`, { id: userId, ...updates });
 }
 
 // ============ Inventory Operations ============
 
 export async function createInventoryItem(item: InventoryItem): Promise<void> {
-  await putItem(TABLES.INVENTORY, item);
+  if (!API_BASE_URL) return createInventoryItemMock(item);
+  await apiPost('/inventory', item);
 }
 
 export async function getInventoryItem(itemId: string, userId: string): Promise<InventoryItem | null> {
-  return getItem<InventoryItem>(TABLES.INVENTORY, { id: itemId, userId });
+  if (!API_BASE_URL) return null;
+  return apiGetOrNull<InventoryItem>(`/inventory/${itemId}`);
 }
 
 export async function getInventoryItemsByUser(userId: string): Promise<InventoryItem[]> {
-  return queryItems<InventoryItem>(
-    TABLES.INVENTORY,
-    'userId = :userId',
-    { ':userId': userId },
-    'userId-index'
-  );
+  if (!API_BASE_URL) return getInventoryItemsByUserMock(userId);
+  return apiGet<InventoryItem[]>(`/inventory?userId=${encodeURIComponent(userId)}`);
 }
 
 export async function getInventoryItemsByHousehold(householdId: string): Promise<InventoryItem[]> {
-  return queryItems<InventoryItem>(
-    TABLES.INVENTORY,
-    'householdId = :householdId',
-    { ':householdId': householdId },
-    'householdId-index'
-  );
+  if (!API_BASE_URL) return getInventoryItemsByHouseholdMock(householdId);
+  return apiGet<InventoryItem[]>(`/inventory/household/${encodeURIComponent(householdId)}`);
 }
 
 export async function updateInventoryItem(
@@ -144,61 +84,35 @@ export async function updateInventoryItem(
   userId: string,
   updates: Partial<InventoryItem>
 ): Promise<void> {
-  const updateExpressions: string[] = [];
-  const expressionValues: Record<string, any> = {};
-  const expressionNames: Record<string, string> = {};
-
-  Object.entries(updates).forEach(([key, value], index) => {
-    if (value !== undefined && key !== 'id' && key !== 'userId') {
-      updateExpressions.push(`#field${index} = :value${index}`);
-      expressionNames[`#field${index}`] = key;
-      expressionValues[`:value${index}`] = value;
-    }
-  });
-
-  if (updateExpressions.length === 0) return;
-
-  const command = new UpdateItemCommand({
-    TableName: TABLES.INVENTORY,
-    Key: marshall({ id: itemId, userId }),
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: expressionNames,
-    ExpressionAttributeValues: marshall(expressionValues),
-  });
-
-  await dynamoClient.send(command);
+  if (!API_BASE_URL) return updateInventoryItemMock(itemId, updates);
+  await apiPut(`/inventory/${itemId}`, { id: itemId, userId, ...updates });
 }
 
 export async function deleteInventoryItem(itemId: string, userId: string): Promise<void> {
-  await deleteItem(TABLES.INVENTORY, { id: itemId, userId });
+  if (!API_BASE_URL) return deleteInventoryItemMock(itemId);
+  await apiDelete(`/inventory/${itemId}`);
 }
 
 // ============ Shopping List Operations ============
 
 export async function createShoppingList(list: ShoppingList): Promise<void> {
-  await putItem(TABLES.SHOPPING_LISTS, list);
+  if (!API_BASE_URL) return createShoppingListMock(list);
+  await apiPost('/shopping-lists', list);
 }
 
 export async function getShoppingList(listId: string, userId: string): Promise<ShoppingList | null> {
-  return getItem<ShoppingList>(TABLES.SHOPPING_LISTS, { id: listId, userId });
+  if (!API_BASE_URL) return null;
+  return apiGetOrNull<ShoppingList>(`/shopping-lists/${listId}`);
 }
 
 export async function getShoppingListsByUser(userId: string): Promise<ShoppingList[]> {
-  return queryItems<ShoppingList>(
-    TABLES.SHOPPING_LISTS,
-    'userId = :userId',
-    { ':userId': userId },
-    'userId-index'
-  );
+  if (!API_BASE_URL) return getShoppingListsByUserMock(userId);
+  return apiGet<ShoppingList[]>(`/shopping-lists?userId=${encodeURIComponent(userId)}`);
 }
 
 export async function getShoppingListsByHousehold(householdId: string): Promise<ShoppingList[]> {
-  return queryItems<ShoppingList>(
-    TABLES.SHOPPING_LISTS,
-    'householdId = :householdId',
-    { ':householdId': householdId },
-    'householdId-index'
-  );
+  if (!API_BASE_URL) return getShoppingListsByHouseholdMock(householdId);
+  return apiGet<ShoppingList[]>(`/shopping-lists/household/${encodeURIComponent(householdId)}`);
 }
 
 export async function updateShoppingList(
@@ -206,101 +120,55 @@ export async function updateShoppingList(
   userId: string,
   updates: Partial<ShoppingList>
 ): Promise<void> {
-  const updateExpressions: string[] = [];
-  const expressionValues: Record<string, any> = {};
-  const expressionNames: Record<string, string> = {};
-
-  Object.entries(updates).forEach(([key, value], index) => {
-    if (value !== undefined && key !== 'id' && key !== 'userId') {
-      updateExpressions.push(`#field${index} = :value${index}`);
-      expressionNames[`#field${index}`] = key;
-      expressionValues[`:value${index}`] = value;
-    }
-  });
-
-  if (updateExpressions.length === 0) return;
-
-  const command = new UpdateItemCommand({
-    TableName: TABLES.SHOPPING_LISTS,
-    Key: marshall({ id: listId, userId }),
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: expressionNames,
-    ExpressionAttributeValues: marshall(expressionValues),
-  });
-
-  await dynamoClient.send(command);
+  if (!API_BASE_URL) return updateShoppingListMock(listId, updates);
+  await apiPut(`/shopping-lists/${listId}`, { id: listId, userId, ...updates });
 }
 
 export async function deleteShoppingList(listId: string, userId: string): Promise<void> {
-  await deleteItem(TABLES.SHOPPING_LISTS, { id: listId, userId });
+  if (!API_BASE_URL) return deleteShoppingListMock(listId);
+  await apiDelete(`/shopping-lists/${listId}`);
 }
 
 // ============ Saved Recipes Operations ============
 
 export async function createSavedRecipe(recipe: SavedRecipe): Promise<void> {
-  await putItem(TABLES.SAVED_RECIPES, recipe);
+  if (!API_BASE_URL) return createSavedRecipeMock(recipe);
+  await apiPost('/saved-recipes', recipe);
 }
 
 export async function getSavedRecipesByUser(userId: string): Promise<SavedRecipe[]> {
-  return queryItems<SavedRecipe>(
-    TABLES.SAVED_RECIPES,
-    'userId = :userId',
-    { ':userId': userId },
-    'userId-index'
-  );
+  if (!API_BASE_URL) return getSavedRecipesByUserMock(userId);
+  return apiGet<SavedRecipe[]>(`/saved-recipes?userId=${encodeURIComponent(userId)}`);
 }
 
 export async function deleteSavedRecipe(recipeId: string, userId: string): Promise<void> {
-  await deleteItem(TABLES.SAVED_RECIPES, { id: recipeId, userId });
+  if (!API_BASE_URL) return deleteSavedRecipeMock(recipeId);
+  await apiDelete(`/saved-recipes/${recipeId}`);
 }
 
 // ============ Household Operations ============
 
 export async function createHousehold(household: Household): Promise<void> {
-  await putItem(TABLES.HOUSEHOLDS, household);
+  if (!API_BASE_URL) return;
+  await apiPost('/households', household);
 }
 
 export async function getHousehold(householdId: string): Promise<Household | null> {
-  return getItem<Household>(TABLES.HOUSEHOLDS, { id: householdId });
+  if (!API_BASE_URL) return null;
+  return apiGetOrNull<Household>(`/households/${householdId}`);
 }
 
 export async function getHouseholdByInviteCode(inviteCode: string): Promise<Household | null> {
-  const results = await queryItems<Household>(
-    TABLES.HOUSEHOLDS,
-    'inviteCode = :inviteCode',
-    { ':inviteCode': inviteCode },
-    'inviteCode-index'
-  );
-  return results[0] || null;
+  if (!API_BASE_URL) return null;
+  return apiGetOrNull<Household>(`/households/invite/${encodeURIComponent(inviteCode)}`);
 }
 
 export async function updateHousehold(
   householdId: string,
   updates: Partial<Household>
 ): Promise<void> {
-  const updateExpressions: string[] = [];
-  const expressionValues: Record<string, any> = {};
-  const expressionNames: Record<string, string> = {};
-
-  Object.entries(updates).forEach(([key, value], index) => {
-    if (value !== undefined && key !== 'id') {
-      updateExpressions.push(`#field${index} = :value${index}`);
-      expressionNames[`#field${index}`] = key;
-      expressionValues[`:value${index}`] = value;
-    }
-  });
-
-  if (updateExpressions.length === 0) return;
-
-  const command = new UpdateItemCommand({
-    TableName: TABLES.HOUSEHOLDS,
-    Key: marshall({ id: householdId }),
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: expressionNames,
-    ExpressionAttributeValues: marshall(expressionValues),
-  });
-
-  await dynamoClient.send(command);
+  if (!API_BASE_URL) return;
+  await apiPut(`/households/${householdId}`, { id: householdId, ...updates });
 }
 
 // ============ Mock Functions for Development ============
