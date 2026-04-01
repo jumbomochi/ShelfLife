@@ -5,6 +5,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 import { Construct } from 'constructs';
 
@@ -144,6 +145,25 @@ export class ShelfLifeStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(imageCleanup)],
     });
 
+    // ============ Rekognition Lambda ============
+
+    const rekognitionAnalyzer = new lambda.Function(this, 'RekognitionAnalyzer', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'rekognition.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda')),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(15),
+      environment: {
+        IMAGES_BUCKET: imagesBucket.bucketName,
+      },
+    });
+
+    imagesBucket.grantRead(rekognitionAnalyzer);
+    rekognitionAnalyzer.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['rekognition:DetectLabels'],
+      resources: ['*'],
+    }));
+
     // ============ DynamoDB CRUD Lambda ============
 
     const dynamodbCrud = new lambda.Function(this, 'DynamoDBCrud', {
@@ -249,6 +269,11 @@ export class ShelfLifeStack extends cdk.Stack {
     uploadUrl.addMethod('POST', s3Integration);
     const imageByKey = images.addResource('{key}');
     imageByKey.addMethod('GET', s3Integration);
+
+    // POST /images/analyze
+    const rekognitionIntegration = new apigateway.LambdaIntegration(rekognitionAnalyzer);
+    const analyzeImage = images.addResource('analyze');
+    analyzeImage.addMethod('POST', rekognitionIntegration);
 
     // Outputs
     new cdk.CfnOutput(this, 'ApiUrl', {
