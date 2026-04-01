@@ -13,7 +13,7 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { detectGroceryItemsMock, DetectedItem } from '@/services/rekognitionService';
+import { detectGroceryItems, DetectedItem } from '@/services/rekognitionService';
 import { lookupBarcodeMock, suggestLocation } from '@/services/barcodeService';
 import { useInventoryStore } from '@/store';
 import { uploadImage } from '@/services/s3Service';
@@ -37,7 +37,7 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [scanMode, setScanMode] = useState<ScanMode>('photo');
   const [isScanning, setIsScanning] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedS3Key, setUploadedS3Key] = useState<string | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const { addItem } = useInventoryStore();
 
@@ -52,7 +52,7 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
 
       if (photo?.uri) {
         setCapturedImage(photo.uri);
-        analyzeImage(photo.base64 || '');
+        analyzeImage(photo.uri);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to take picture');
@@ -68,17 +68,20 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
 
     if (!result.canceled && result.assets[0]) {
       setCapturedImage(result.assets[0].uri);
-      analyzeImage(result.assets[0].base64 || '');
+      analyzeImage(result.assets[0].uri);
     }
   };
 
-  const analyzeImage = async (base64: string) => {
+  const analyzeImage = async (imageUri: string) => {
     setIsAnalyzing(true);
     try {
-      // Use mock for now - replace with real service when AWS is configured
-      const items = await detectGroceryItemsMock(base64);
+      // Upload to S3 first
+      const s3Key = await uploadImage(imageUri);
+      setUploadedS3Key(s3Key);
+
+      // Analyze the uploaded image via Rekognition
+      const items = await detectGroceryItems(s3Key);
       setDetectedItems(items);
-      // Auto-select all detected items
       setSelectedItems(new Set(items.map((item) => item.name)));
     } catch (error) {
       Alert.alert('Error', 'Failed to analyze image');
@@ -100,21 +103,6 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
   };
 
   const addSelectedItems = async () => {
-    let imageUrl: string | undefined;
-
-    // Upload captured image if available
-    if (capturedImage) {
-      try {
-        setIsUploading(true);
-        imageUrl = await uploadImage(capturedImage);
-      } catch (error) {
-        console.error('Image upload failed:', error);
-        // Continue without image — don't block item creation
-      } finally {
-        setIsUploading(false);
-      }
-    }
-
     selectedItems.forEach((itemName) => {
       addItem({
         userId: 'current-user',
@@ -123,7 +111,7 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
         unit: 'pcs',
         location: 'fridge',
         ownership: 'personal',
-        imageUrl,
+        imageUrl: uploadedS3Key || undefined,
       });
     });
 
@@ -136,6 +124,7 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
     setCapturedImage(null);
     setDetectedItems([]);
     setSelectedItems(new Set());
+    setUploadedS3Key(null);
   };
 
   const handleBarcodeScanned = useCallback(
@@ -290,18 +279,14 @@ export default function CameraScreen({ onClose, onItemsAdded }: CameraScreenProp
                 <TouchableOpacity
                   style={[
                     styles.addButton,
-                    (selectedItems.size === 0 || isUploading) && styles.addButtonDisabled,
+                    selectedItems.size === 0 && styles.addButtonDisabled,
                   ]}
                   onPress={addSelectedItems}
-                  disabled={selectedItems.size === 0 || isUploading}
+                  disabled={selectedItems.size === 0}
                 >
-                  {isUploading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.addButtonText}>
-                      Add {selectedItems.size} Item(s)
-                    </Text>
-                  )}
+                  <Text style={styles.addButtonText}>
+                    Add {selectedItems.size} Item(s)
+                  </Text>
                 </TouchableOpacity>
               </>
             ) : (
