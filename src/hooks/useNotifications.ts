@@ -5,14 +5,16 @@ import {
   scheduleExpirationNotifications,
   setBadgeCount,
   getNotificationSettings,
+  registerPushToken,
 } from '@/services/notificationService';
 import * as Notifications from 'expo-notifications';
 
 export function useNotifications() {
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
+  const hasRegistered = useRef(false);
 
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const { items, getExpiringItems } = useInventoryStore();
 
   // Request permissions and set up listeners
@@ -22,6 +24,12 @@ export function useNotifications() {
     const setup = async () => {
       const granted = await requestNotificationPermissions();
       if (!granted) return;
+
+      // Register push token with backend (once per session)
+      if (!hasRegistered.current && user?.sub) {
+        hasRegistered.current = true;
+        registerPushToken(user.sub);
+      }
 
       // Listen for notifications received while app is foregrounded
       notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {

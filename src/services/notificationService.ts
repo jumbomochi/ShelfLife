@@ -248,3 +248,33 @@ export async function setBadgeCount(count: number): Promise<void> {
 export async function clearBadge(): Promise<void> {
   await Notifications.setBadgeCountAsync(0);
 }
+
+// ============ Cloud Push Token Registration ============
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_GATEWAY_URL || '';
+
+export async function registerPushToken(userId: string): Promise<void> {
+  if (!Device.isDevice) return;
+
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const pushToken = tokenData.data;
+
+    if (!API_BASE_URL) {
+      console.log('Push token (mock):', pushToken);
+      return;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/notifications/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, pushToken }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to register push token:', response.status);
+    }
+  } catch (error) {
+    console.error('Push token registration error:', error);
+  }
+}
