@@ -164,6 +164,41 @@ export class ShelfLifeStack extends cdk.Stack {
       resources: ['*'],
     }));
 
+    // ============ Notification Lambdas ============
+
+    const notificationRegister = new lambda.Function(this, 'NotificationRegister', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'notification-register.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda')),
+      memorySize: 128,
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        USERS_TABLE: usersTable.tableName,
+      },
+    });
+
+    usersTable.grantWriteData(notificationRegister);
+
+    const expirationNotifier = new lambda.Function(this, 'ExpirationNotifier', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'expiration-notifier.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda')),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(60),
+      environment: {
+        USERS_TABLE: usersTable.tableName,
+        INVENTORY_TABLE: inventoryTable.tableName,
+      },
+    });
+
+    usersTable.grantReadData(expirationNotifier);
+    inventoryTable.grantReadData(expirationNotifier);
+
+    new events.Rule(this, 'ExpirationNotifierSchedule', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '0' }),
+      targets: [new targets.LambdaFunction(expirationNotifier)],
+    });
+
     // ============ DynamoDB CRUD Lambda ============
 
     const dynamodbCrud = new lambda.Function(this, 'DynamoDBCrud', {
@@ -274,6 +309,12 @@ export class ShelfLifeStack extends cdk.Stack {
     const rekognitionIntegration = new apigateway.LambdaIntegration(rekognitionAnalyzer);
     const analyzeImage = images.addResource('analyze');
     analyzeImage.addMethod('POST', rekognitionIntegration);
+
+    // --- Notifications ---
+    const notifRegisterIntegration = new apigateway.LambdaIntegration(notificationRegister);
+    const notifications = api.root.addResource('notifications');
+    const registerRoute = notifications.addResource('register');
+    registerRoute.addMethod('POST', notifRegisterIntegration);
 
     // Outputs
     new cdk.CfnOutput(this, 'ApiUrl', {
