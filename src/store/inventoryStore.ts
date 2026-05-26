@@ -61,6 +61,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       id: generateId(),
       addedAt: now,
       updatedAt: now,
+      version: 1,
     };
 
     // Update local state
@@ -98,7 +99,12 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     set((state) => ({
       items: state.items.map((item) => {
         if (item.id === id) {
-          updatedItem = { ...item, ...updates, updatedAt: now };
+          updatedItem = {
+            ...item,
+            ...updates,
+            updatedAt: now,
+            version: (item.version ?? 0) + 1,
+          };
           return updatedItem;
         }
         return item;

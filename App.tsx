@@ -24,6 +24,7 @@ import {
 import { RootStackParamList, RootTabParamList } from '@/types';
 import { useShoppingStore, useAuthStore, useInventoryStore, useRecipesStore } from '@/store';
 import { useSync, useNotifications } from '@/hooks';
+import ConflictResolutionModal from '@/components/ConflictResolutionModal';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -302,6 +303,7 @@ export default function App() {
     <NavigationContainer>
       <StatusBar style="auto" />
       {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
+      {isAuthenticated && <ConflictResolutionModal />}
     </NavigationContainer>
   );
 }

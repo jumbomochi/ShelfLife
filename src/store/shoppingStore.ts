@@ -50,8 +50,11 @@ interface ShoppingState {
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
-// Helper to save and sync
+// Helper to save and sync. Bumps version on the target list for conflict detection.
 async function saveAndSync(lists: ShoppingList[], updatedList: ShoppingList, type: 'CREATE' | 'UPDATE' | 'DELETE') {
+  if (type !== 'DELETE') {
+    updatedList.version = (updatedList.version ?? 0) + 1;
+  }
   await saveShoppingListsLocal(lists);
   await addToSyncQueue({
     type,

@@ -1,4 +1,5 @@
 // Core type definitions for ShelfLife
+import type { NavigatorScreenParams } from '@react-navigation/native';
 
 // User & Authentication
 export interface User {
@@ -91,10 +92,12 @@ export interface InventoryItem {
   location: ItemLocation;
   quantity: number;
   unit: string;
+  minQuantity?: number;
   expirationDate?: string;
   imageUrl?: string;
   addedAt: string;
   updatedAt: string;
+  version?: number;
 }
 
 // Recipes (Spoonacular integration)
@@ -163,7 +166,24 @@ export interface ShoppingList {
   items: ShoppingListItem[];
   createdAt: string;
   updatedAt: string;
+  version?: number;
 }
+
+// Sync Conflict Resolution (#12)
+export type ConflictEntity = 'INVENTORY' | 'SHOPPING_LIST';
+
+export interface SyncConflict {
+  id: string;
+  entity: ConflictEntity;
+  entityId: string;
+  local: any;
+  remote: any;
+  conflictingFields: string[];
+  detectedAt: string;
+}
+
+// Sync Status (#13)
+export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline';
 
 // Navigation Types
 export type RootTabParamList = {
@@ -174,7 +194,7 @@ export type RootTabParamList = {
 };
 
 export type RootStackParamList = {
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<RootTabParamList> | undefined;
   AddItem: {
     mode: 'camera' | 'manual';
     prefill?: {
@@ -191,3 +211,4 @@ export type RootStackParamList = {
   Settings: undefined;
   HouseholdManagement: undefined;
 };
+

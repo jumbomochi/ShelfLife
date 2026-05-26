@@ -14,6 +14,11 @@ import {
   getSavedRecipesByUser,
 } from './dynamoDBService';
 import { InventoryItem, ShoppingList, SavedRecipe } from '@/types';
+import {
+  detectInventoryConflict,
+  detectShoppingListConflict,
+  enqueueConflict,
+} from './conflictService';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -96,6 +101,11 @@ export async function addToSyncQueue(operation: Omit<SyncOperation, 'id' | 'time
 
 export async function clearSyncQueue(): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.SYNC_QUEUE, JSON.stringify([]));
+}
+
+export async function getPendingSyncCount(): Promise<number> {
+  const queue = await getSyncQueue();
+  return queue.length;
 }
 
 // ============ Network Status ============
@@ -188,6 +198,55 @@ async function processSavedRecipeOperation(operation: SyncOperation): Promise<vo
   }
 }
 
+// ============ Conflict-Aware Merge ============
+
+async function mergeWithConflicts<T extends { id: string; updatedAt: string; version?: number }>(
+  local: T[],
+  remote: T[],
+  entity: 'INVENTORY' | 'SHOPPING_LIST',
+  detect: (l: T, r: T) => { conflictingFields: string[]; merged: T }
+): Promise<T[]> {
+  const localById = new Map(local.map((item) => [item.id, item]));
+  const remoteById = new Map(remote.map((item) => [item.id, item]));
+  const result: T[] = [];
+
+  // Items present in remote
+  for (const remoteItem of remote) {
+    const localItem = localById.get(remoteItem.id);
+    if (!localItem) {
+      result.push(remoteItem);
+      continue;
+    }
+
+    const localVersion = localItem.version ?? 0;
+    const remoteVersion = remoteItem.version ?? 0;
+    const sameVersion = localVersion === remoteVersion;
+    const sameTimestamp = localItem.updatedAt === remoteItem.updatedAt;
+
+    if (sameVersion && sameTimestamp) {
+      // No divergence
+      result.push(remoteItem);
+      continue;
+    }
+
+    const { conflictingFields, merged } = detect(localItem, remoteItem);
+    if (conflictingFields.length > 0) {
+      // Real conflict — queue for user resolution but optimistically use merged
+      await enqueueConflict(entity, remoteItem.id, localItem, remoteItem, conflictingFields);
+    }
+    result.push(merged);
+  }
+
+  // Items present locally but missing remotely — keep if newer than last sync (might be unsynced create)
+  for (const localItem of local) {
+    if (!remoteById.has(localItem.id)) {
+      result.push(localItem);
+    }
+  }
+
+  return result;
+}
+
 // ============ Full Sync (Pull from Server) ============
 
 export async function fullSync(userId: string): Promise<{
@@ -210,12 +269,32 @@ export async function fullSync(userId: string): Promise<{
     // First, push any pending changes
     await processSyncQueue(userId);
 
+    // Snapshot local state for conflict detection
+    const [localInventory, localShoppingLists] = await Promise.all([
+      loadInventoryLocal(),
+      loadShoppingListsLocal(),
+    ]);
+
     // Then pull from server
-    const [inventory, shoppingLists, savedRecipes] = await Promise.all([
+    const [remoteInventory, remoteShoppingLists, savedRecipes] = await Promise.all([
       getInventoryItemsByUser(userId),
       getShoppingListsByUser(userId),
       getSavedRecipesByUser(userId),
     ]);
+
+    // Detect & resolve conflicts (auto-merge non-conflicting fields, queue real conflicts)
+    const inventory = await mergeWithConflicts(
+      localInventory,
+      remoteInventory,
+      'INVENTORY',
+      detectInventoryConflict
+    );
+    const shoppingLists = await mergeWithConflicts(
+      localShoppingLists,
+      remoteShoppingLists,
+      'SHOPPING_LIST',
+      detectShoppingListConflict
+    );
 
     // Save to local storage
     await Promise.all([
