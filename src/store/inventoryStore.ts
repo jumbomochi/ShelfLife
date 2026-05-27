@@ -41,6 +41,7 @@ interface InventoryState {
   getItemsByLocation: (location: ItemLocation) => InventoryItem[];
   getItemsByOwnership: (ownership: ItemOwnership) => InventoryItem[];
   getExpiringItems: (daysThreshold: number) => InventoryItem[];
+  getLowStockItems: () => InventoryItem[];
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -229,6 +230,14 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       if (!item.expirationDate) return false;
       const expDate = new Date(item.expirationDate);
       return expDate <= threshold && expDate >= now;
+    });
+  },
+
+  getLowStockItems: () => {
+    const allItems = get().getAllItems();
+    return allItems.filter((item) => {
+      const threshold = item.minQuantity ?? 1;
+      return item.quantity <= threshold;
     });
   },
 }));

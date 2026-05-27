@@ -28,6 +28,7 @@ export function SettingsScreen({ onClose }: SettingsScreenProps) {
     enabled: true,
     expirationWarningDays: [1, 3, 7],
     dailyReminderTime: '09:00',
+    lowStockAlerts: true,
   });
   const [isLoading, setIsLoading] = useState(true);
 
@@ -180,6 +181,21 @@ export function SettingsScreen({ onClose }: SettingsScreenProps) {
                   </Text>
                 </View>
                 <Text style={styles.timeValue}>{settings.dailyReminderTime}</Text>
+              </View>
+
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Low Stock Alerts</Text>
+                  <Text style={styles.settingDescription}>
+                    Notify when items fall below their threshold
+                  </Text>
+                </View>
+                <Switch
+                  value={settings.lowStockAlerts}
+                  onValueChange={(value) => updateSetting('lowStockAlerts', value)}
+                  trackColor={{ false: '#E5E5EA', true: '#34C759' }}
+                  thumbColor="#fff"
+                />
               </View>
             </>
           )}

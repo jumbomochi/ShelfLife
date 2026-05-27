@@ -34,6 +34,7 @@ export default function AddItemScreen({ onClose, onSuccess }: AddItemScreenProps
   const [location, setLocation] = useState<ItemLocation>(prefill?.location ?? 'fridge');
   const [ownership, setOwnership] = useState<ItemOwnership>('personal');
   const [expirationDate, setExpirationDate] = useState('');
+  const [minQuantity, setMinQuantity] = useState('');
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -47,6 +48,12 @@ export default function AddItemScreen({ onClose, onSuccess }: AddItemScreenProps
       return;
     }
 
+    const minQty = minQuantity.trim() ? parseFloat(minQuantity) : undefined;
+    if (minQuantity.trim() && (isNaN(minQty as number) || (minQty as number) < 0)) {
+      Alert.alert('Error', 'Please enter a valid minimum quantity');
+      return;
+    }
+
     addItem({
       userId: 'current-user', // TODO: Replace with actual user ID from auth
       name: name.trim(),
@@ -55,6 +62,7 @@ export default function AddItemScreen({ onClose, onSuccess }: AddItemScreenProps
       location,
       ownership,
       expirationDate: expirationDate || undefined,
+      minQuantity: minQty,
     });
 
     onSuccess?.();
@@ -176,6 +184,18 @@ export default function AddItemScreen({ onClose, onSuccess }: AddItemScreenProps
             value={expirationDate}
             onChangeText={setExpirationDate}
             placeholder="YYYY-MM-DD"
+            placeholderTextColor="#999"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Low Stock Threshold (Optional)</Text>
+          <TextInput
+            style={styles.textInput}
+            value={minQuantity}
+            onChangeText={setMinQuantity}
+            keyboardType="decimal-pad"
+            placeholder="Alert when quantity falls to this number"
             placeholderTextColor="#999"
           />
         </View>

@@ -6,6 +6,7 @@ import {
   setBadgeCount,
   getNotificationSettings,
   registerPushToken,
+  notifyLowStockItems,
 } from '@/services/notificationService';
 import * as Notifications from 'expo-notifications';
 
@@ -15,7 +16,7 @@ export function useNotifications() {
   const hasRegistered = useRef(false);
 
   const { isAuthenticated, user } = useAuthStore();
-  const { items, getExpiringItems } = useInventoryStore();
+  const { items, getExpiringItems, getLowStockItems } = useInventoryStore();
 
   // Request permissions and set up listeners
   useEffect(() => {
@@ -66,9 +67,13 @@ export function useNotifications() {
 
       await scheduleExpirationNotifications(items);
 
-      // Update badge with count of items expiring in 3 days
+      // Low-stock check is event-driven (no scheduling) — fire if items are below threshold.
+      await notifyLowStockItems(getLowStockItems());
+
+      // Update badge with count of items expiring in 3 days plus low stock
       const expiringItems = getExpiringItems(3);
-      await setBadgeCount(expiringItems.length);
+      const lowStock = getLowStockItems();
+      await setBadgeCount(expiringItems.length + lowStock.length);
     };
 
     scheduleNotifications();

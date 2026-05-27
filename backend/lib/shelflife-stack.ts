@@ -199,6 +199,26 @@ export class ShelfLifeStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(expirationNotifier)],
     });
 
+    const lowStockNotifier = new lambda.Function(this, 'LowStockNotifier', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'low-stock-notifier.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda')),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(60),
+      environment: {
+        USERS_TABLE: usersTable.tableName,
+        INVENTORY_TABLE: inventoryTable.tableName,
+      },
+    });
+
+    usersTable.grantReadData(lowStockNotifier);
+    inventoryTable.grantReadData(lowStockNotifier);
+
+    new events.Rule(this, 'LowStockNotifierSchedule', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '1' }),
+      targets: [new targets.LambdaFunction(lowStockNotifier)],
+    });
+
     // ============ DynamoDB CRUD Lambda ============
 
     const dynamodbCrud = new lambda.Function(this, 'DynamoDBCrud', {

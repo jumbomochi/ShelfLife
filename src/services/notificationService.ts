@@ -10,12 +10,14 @@ export interface NotificationSettings {
   enabled: boolean;
   expirationWarningDays: number[]; // Days before expiration to notify
   dailyReminderTime: string; // HH:MM format
+  lowStockAlerts: boolean;
 }
 
 const DEFAULT_SETTINGS: NotificationSettings = {
   enabled: true,
   expirationWarningDays: [1, 3, 7],
   dailyReminderTime: '09:00',
+  lowStockAlerts: true,
 };
 
 // Configure notification behavior
@@ -177,6 +179,51 @@ export async function cancelAllExpirationNotifications(): Promise<void> {
       await Notifications.cancelScheduledNotificationAsync(notification.identifier);
     }
   }
+}
+
+// ============ Low Stock Notifications ============
+
+const LOW_STOCK_NOTIFIED_KEY = '@shelflife_low_stock_notified';
+
+function getLowStockKey(item: InventoryItem): string {
+  return `${item.id}:${item.quantity}`;
+}
+
+export async function notifyLowStockItems(lowStockItems: InventoryItem[]): Promise<void> {
+  const settings = await getNotificationSettings();
+  if (!settings.enabled || !settings.lowStockAlerts || lowStockItems.length === 0) {
+    return;
+  }
+
+  // De-dupe: only notify per item+quantity once until quantity changes again.
+  const notifiedRaw = await AsyncStorage.getItem(LOW_STOCK_NOTIFIED_KEY);
+  const notified: string[] = notifiedRaw ? JSON.parse(notifiedRaw) : [];
+  const notifiedSet = new Set(notified);
+  const fresh = lowStockItems.filter((item) => !notifiedSet.has(getLowStockKey(item)));
+  if (fresh.length === 0) return;
+
+  if (fresh.length === 1) {
+    const item = fresh[0];
+    await sendImmediateNotification(
+      `📉 Low Stock: ${item.name}`,
+      `Only ${item.quantity} ${item.unit} left of ${item.name}.`,
+      { itemId: item.id, type: 'low-stock' }
+    );
+  } else {
+    await sendImmediateNotification(
+      `📉 ${fresh.length} items running low`,
+      fresh.map((i) => i.name).slice(0, 5).join(', ') + (fresh.length > 5 ? '…' : ''),
+      { type: 'low-stock' }
+    );
+  }
+
+  // Persist new notified keys, and prune entries for items no longer low.
+  const currentKeys = new Set(lowStockItems.map(getLowStockKey));
+  const updated = [
+    ...notified.filter((k) => currentKeys.has(k)),
+    ...fresh.map(getLowStockKey),
+  ];
+  await AsyncStorage.setItem(LOW_STOCK_NOTIFIED_KEY, JSON.stringify(updated));
 }
 
 // ============ Immediate Notifications ============

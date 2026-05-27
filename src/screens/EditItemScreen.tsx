@@ -32,6 +32,7 @@ export default function EditItemScreen({ itemId, onClose, onSuccess }: EditItemS
   const [location, setLocation] = useState<ItemLocation>('fridge');
   const [ownership, setOwnership] = useState<ItemOwnership>('personal');
   const [expirationDate, setExpirationDate] = useState('');
+  const [minQuantity, setMinQuantity] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function EditItemScreen({ itemId, onClose, onSuccess }: EditItemS
       setLocation(item.location);
       setOwnership(item.ownership);
       setExpirationDate(item.expirationDate || '');
+      setMinQuantity(item.minQuantity != null ? String(item.minQuantity) : '');
     }
   }, [item]);
 
@@ -74,6 +76,12 @@ export default function EditItemScreen({ itemId, onClose, onSuccess }: EditItemS
       return;
     }
 
+    const minQty = minQuantity.trim() ? parseFloat(minQuantity) : undefined;
+    if (minQuantity.trim() && (isNaN(minQty as number) || (minQty as number) < 0)) {
+      Alert.alert('Error', 'Please enter a valid minimum quantity');
+      return;
+    }
+
     setIsLoading(true);
     try {
       await updateItem(itemId, {
@@ -83,6 +91,7 @@ export default function EditItemScreen({ itemId, onClose, onSuccess }: EditItemS
         location,
         ownership,
         expirationDate: expirationDate || undefined,
+        minQuantity: minQty,
       });
 
       onSuccess?.();
@@ -212,6 +221,18 @@ export default function EditItemScreen({ itemId, onClose, onSuccess }: EditItemS
             value={expirationDate}
             onChangeText={setExpirationDate}
             placeholder="YYYY-MM-DD"
+            placeholderTextColor="#999"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Low Stock Threshold (Optional)</Text>
+          <TextInput
+            style={styles.textInput}
+            value={minQuantity}
+            onChangeText={setMinQuantity}
+            keyboardType="decimal-pad"
+            placeholder="Alert when quantity falls to this number"
             placeholderTextColor="#999"
           />
         </View>

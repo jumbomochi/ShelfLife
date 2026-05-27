@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useInventoryStore } from '@/store';
+import { useInventoryStore, useShoppingStore } from '@/store';
 import { RootStackParamList, InventoryItem } from '@/types';
 import InventoryItemCard from '@/components/InventoryItemCard';
 import SyncStatusIndicator from '@/components/SyncStatusIndicator';
@@ -10,11 +10,30 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const { items, getExpiringItems } = useInventoryStore();
+  const { items, getExpiringItems, getLowStockItems } = useInventoryStore();
+  const { lists, activeListId, createList, addItems } = useShoppingStore();
 
   const expiringItems = getExpiringItems(7);
+  const lowStockItems = getLowStockItems();
   const fridgeCount = items.filter((i) => i.location === 'fridge').length;
   const pantryCount = items.filter((i) => i.location === 'pantry').length;
+
+  const handleAddLowStockToShopping = async () => {
+    if (lowStockItems.length === 0) return;
+    let listId = activeListId;
+    if (!listId || lists.length === 0) {
+      listId = createList('Low Stock');
+    }
+    await addItems(
+      listId,
+      lowStockItems.map((item) => ({
+        name: item.name,
+        quantity: Math.max(1, (item.minQuantity ?? 1) - item.quantity + 1),
+        unit: item.unit,
+      }))
+    );
+    navigation.navigate('MainTabs', { screen: 'Shopping' });
+  };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -83,6 +102,22 @@ export default function HomeScreen() {
           </View>
         )}
       </View>
+
+      {lowStockItems.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              Low Stock ({lowStockItems.length})
+            </Text>
+            <TouchableOpacity onPress={handleAddLowStockToShopping}>
+              <Text style={styles.sectionAction}>Add all to list</Text>
+            </TouchableOpacity>
+          </View>
+          {lowStockItems.slice(0, 5).map((item) => (
+            <InventoryItemCard key={item.id} item={item} />
+          ))}
+        </View>
+      )}
 
       {items.length === 0 && (
         <View style={styles.welcomeCard}>
@@ -186,6 +221,17 @@ const styles = StyleSheet.create({
   section: {
     padding: 16,
     paddingTop: 8,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionAction: {
+    color: '#007AFF',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 12,
   },
   emptyState: {
     backgroundColor: '#fff',
