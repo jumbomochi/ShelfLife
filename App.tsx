@@ -26,6 +26,8 @@ import { useShoppingStore, useAuthStore, useInventoryStore, useRecipesStore } fr
 import { useSync, useNotifications } from '@/hooks';
 import ConflictResolutionModal from '@/components/ConflictResolutionModal';
 import OfflineBanner from '@/components/OfflineBanner';
+import { navigationRef } from '@/navigation/navigationRef';
+import { linking } from '@/navigation/linking';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -301,7 +303,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef} linking={linking}>
       <StatusBar style="auto" />
       {isAuthenticated && <OfflineBanner />}
       {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}

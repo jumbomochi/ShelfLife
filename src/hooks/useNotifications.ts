@@ -9,6 +9,37 @@ import {
   notifyLowStockItems,
 } from '@/services/notificationService';
 import * as Notifications from 'expo-notifications';
+import { navigateIfReady } from '@/navigation/navigationRef';
+
+function handleNotificationPayload(data: Record<string, any> | undefined): void {
+  if (!data) return;
+
+  switch (data.type) {
+    case 'expiration':
+    case 'expiration-warning':
+      if (typeof data.itemId === 'string') {
+        navigateIfReady('EditItem', { itemId: data.itemId });
+      } else {
+        navigateIfReady('MainTabs', { screen: 'Inventory' });
+      }
+      break;
+    case 'low-stock':
+      if (typeof data.itemId === 'string') {
+        navigateIfReady('EditItem', { itemId: data.itemId });
+      } else {
+        navigateIfReady('MainTabs', { screen: 'Shopping' });
+      }
+      break;
+    case 'daily-summary':
+      navigateIfReady('MainTabs', { screen: 'Home' });
+      break;
+    case 'household':
+      navigateIfReady('HouseholdManagement');
+      break;
+    default:
+      break;
+  }
+}
 
 export function useNotifications() {
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
@@ -33,20 +64,22 @@ export function useNotifications() {
       }
 
       // Listen for notifications received while app is foregrounded
-      notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
-        console.log('Notification received:', notification);
+      notificationListener.current = Notifications.addNotificationReceivedListener(() => {
+        // Foreground delivery — handler in notificationService decides UI behavior
       });
 
-      // Listen for user interaction with notification
+      // Listen for user interaction with notification (foreground & background)
       responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data;
-        console.log('Notification response:', data);
-
-        // Handle navigation based on notification type
-        if (data?.type === 'expiration' || data?.type === 'expiration-warning') {
-          // Could navigate to inventory screen here
-        }
+        const data = response.notification.request.content.data as Record<string, any> | undefined;
+        handleNotificationPayload(data);
       });
+
+      // Cold start: app was launched by tapping a notification
+      const initialResponse = await Notifications.getLastNotificationResponseAsync();
+      if (initialResponse) {
+        const data = initialResponse.notification.request.content.data as Record<string, any> | undefined;
+        handleNotificationPayload(data);
+      }
     };
 
     setup();
