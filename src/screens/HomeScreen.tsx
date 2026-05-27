@@ -4,6 +4,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInventoryStore } from '@/store';
 import { RootStackParamList, InventoryItem } from '@/types';
 import InventoryItemCard from '@/components/InventoryItemCard';
+import SyncStatusIndicator from '@/components/SyncStatusIndicator';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -30,6 +31,7 @@ export default function HomeScreen() {
             <Text style={styles.profileButtonText}>Profile</Text>
           </TouchableOpacity>
         </View>
+        <SyncStatusIndicator />
       </View>
 
       <View style={styles.statsContainer}>

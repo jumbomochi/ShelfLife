@@ -25,6 +25,7 @@ import { RootStackParamList, RootTabParamList } from '@/types';
 import { useShoppingStore, useAuthStore, useInventoryStore, useRecipesStore } from '@/store';
 import { useSync, useNotifications } from '@/hooks';
 import ConflictResolutionModal from '@/components/ConflictResolutionModal';
+import OfflineBanner from '@/components/OfflineBanner';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -302,6 +303,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <StatusBar style="auto" />
+      {isAuthenticated && <OfflineBanner />}
       {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       {isAuthenticated && <ConflictResolutionModal />}
     </NavigationContainer>

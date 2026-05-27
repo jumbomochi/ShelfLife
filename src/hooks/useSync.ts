@@ -23,7 +23,7 @@ export function useSync() {
   const { setSavedRecipes } = useRecipesStore();
   const { setLists: setShoppingLists } = useShoppingStore();
   const { refresh: refreshConflicts } = useConflictStore();
-  const { setStatus, setLastSyncAt, setLastError, setPendingCount, setOnline } = useSyncStore();
+  const { setStatus, setLastSyncAt, setLastError, setPendingCount, setOnline, setTriggerSync } = useSyncStore();
 
   const updatePendingCount = async () => {
     const count = await getPendingSyncCount();
@@ -90,6 +90,9 @@ export function useSync() {
     // Set up periodic sync
     syncIntervalRef.current = setInterval(performSync, SYNC_INTERVAL);
 
+    // Expose manual sync trigger for UI retry
+    setTriggerSync(performSync);
+
     // Initial sync when hook mounts
     performSync();
 
@@ -99,6 +102,7 @@ export function useSync() {
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
       }
+      setTriggerSync(null);
     };
   }, [isAuthenticated, user?.sub]);
 
