@@ -754,7 +754,7 @@ After implementation, deploy the backend:
 cd backend
 npm install
 npx cdk bootstrap  # first time only
-npx cdk deploy --context spoonacularApiKey=dc1242dd7bad4c2196837c722052e15b
+npx cdk deploy --context spoonacularApiKey=<your-spoonacular-api-key>
 ```
 
 The deploy output will show the API Gateway URL. Set it in the app:
